@@ -38,10 +38,11 @@ export async function POST(request: Request) {
   await db.prepare("INSERT INTO snapshots (chain, token_address, holder_count, total_buy_usd, total_token_amount, market_value, captured_at) VALUES (?, ?, 6, 0, 0, 0, ?)").bind(chain, token, now).run();
   const publicUrl = String((env as unknown as Record<string, unknown>).PUBLIC_SITE_URL || "").replace(/\/$/, "");
   const walletNames = selected.map((w) => w.name || w.address);
+  let wecom = "sent";
   await sendWeComAlert({
     name, symbol, chain: "Solana", address: token, holderCount: 6, marketCap: "$0（测试）", liquidity: "$0（测试）", holders: 0,
     volume24h: "$0（测试）", gmgnTheme: "链路测试，不是交易信号。", aiAnalysis: narrative.aiAnalysis, walletNames,
     detailUrl: `${publicUrl}/signal/${signalId}`,
-  });
-  return Response.json({ ok: true, signalId, posts: narrative.posts.length, aiAnalysis: narrative.aiAnalysis, detailUrl: `${publicUrl}/signal/${signalId}` });
+  }).catch((error) => { wecom = error instanceof Error ? error.message : String(error); });
+  return Response.json({ ok: true, signalId, posts: narrative.posts.length, aiAnalysis: narrative.aiAnalysis, wecom, detailUrl: `${publicUrl}/signal/${signalId}` });
 }

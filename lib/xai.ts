@@ -55,7 +55,7 @@ export async function analyzeNarrative(input: {
   name: string;
 }): Promise<NarrativeResult> {
   const prompt = `你是加密资产社媒研究员。只执行一次X搜索，禁止读取帖子线程，禁止第二次搜索。
-搜索最近48小时与以下代币明确相关的热门原创帖子，排除转推、重复喊单、机器人水文和同名无关项目：
+搜索最近48小时与以下代币明确相关的热门原创帖子。优先匹配完整合约；若帖子没有粘贴合约，但名称、代码、官方账号或上下文可确认是同一项目，也可以采用。排除转推、重复喊单、机器人水文和同名无关项目：
 链：${input.chain}
 合约：${input.address}
 名称：${input.name}
@@ -101,4 +101,3 @@ export async function analyzeNarrative(input: {
     raw,
   };
 }
-
