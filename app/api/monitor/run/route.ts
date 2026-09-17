@@ -97,13 +97,19 @@ async function runMonitor() {
   const startedAt = new Date().toISOString();
   let newTrades = 0;
   let newSignals = 0;
+  let fetchedRows = 0;
+  let matchedRows = 0;
+  let feedErrors: string[] = [];
   const touched = new Map<string, { chain: string; token: string }>();
   try {
     const feeds = await Promise.all(CHAINS.flatMap((chain) => [
-      getKolTrades(chain).then((data) => ({ chain, data })).catch(() => ({ chain, data: { list: [] } })),
-      getSmartMoneyTrades(chain).then((data) => ({ chain, data })).catch(() => ({ chain, data: { list: [] } })),
+      getKolTrades(chain).then((data) => ({ chain, data, error: "" })).catch((error) => ({ chain, data: { list: [] }, error: `kol:${chain}:${error instanceof Error ? error.message : String(error)}` })),
+      getSmartMoneyTrades(chain).then((data) => ({ chain, data, error: "" })).catch((error) => ({ chain, data: { list: [] }, error: `smartmoney:${chain}:${error instanceof Error ? error.message : String(error)}` })),
     ]));
+    feedErrors = feeds.map((feed) => feed.error).filter(Boolean);
+    fetchedRows = feeds.reduce((sum, feed) => sum + asList(feed.data).length, 0);
     const parsed = feeds.flatMap(({ chain, data }) => asList(data).map((row) => parseTrade(chain, row)).filter((row): row is Trade => Boolean(row)));
+    matchedRows = parsed.length;
 
     for (const trade of parsed) {
       const inserted = await db.prepare(`INSERT OR IGNORE INTO trades
@@ -172,7 +178,7 @@ async function runMonitor() {
     }
     const finishedAt = new Date().toISOString();
     await db.prepare("INSERT INTO monitor_runs (status, new_trades, new_signals, started_at, finished_at) VALUES ('success', ?, ?, ?, ?)").bind(newTrades, newSignals, startedAt, finishedAt).run();
-    return { ok: true, newTrades, newSignals, startedAt, finishedAt };
+    return { ok: true, fetchedRows, matchedRows, newTrades, newSignals, feedErrors, startedAt, finishedAt };
   } catch (error) {
     const finishedAt = new Date().toISOString();
     const message = error instanceof Error ? error.message : "未知错误";
