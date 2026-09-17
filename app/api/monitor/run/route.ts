@@ -44,7 +44,7 @@ function parseTrade(chain: string, row: Record<string, unknown>): Trade | null {
   const wallet = firstString(row, ["maker", "wallet_address", "address", "owner"]) || firstString(makerInfo, ["address", "wallet_address"]);
   const watched = watchedByAddress.get(`${CHAIN_LABEL[chain].toLowerCase()}:${wallet.toLowerCase()}`);
   if (!watched) return null;
-  const token = firstString(row, ["token_address", "base_token_address", "contract_address", "mint", "address"]) || firstString(tokenInfo, ["address", "token_address", "contract_address", "mint"]);
+  const token = firstString(row, ["token_address", "base_address", "base_token_address", "contract_address", "mint", "address"]) || firstString(tokenInfo, ["address", "token_address", "contract_address", "mint"]);
   if (!token || token.toLowerCase() === wallet.toLowerCase()) return null;
   const rawSide = firstString(row, ["side", "event_type", "type", "action"]).toLowerCase();
   const side = rawSide.includes("buy") ? "buy" : rawSide.includes("sell") ? "sell" : null;
@@ -55,7 +55,7 @@ function parseTrade(chain: string, row: Record<string, unknown>): Trade | null {
   const usd = firstNumber(row, ["amount_usd", "usd_value", "value_usd", "volume_usd"]);
   const amount = firstNumber(row, ["token_amount", "amount", "base_amount", "amount_out"]);
   return {
-    id: hash || `${chain}:${wallet}:${token}:${side}:${unix || firstString(row, ["id"])}`,
+    id: hash ? `${hash}:${token}:${side}` : `${chain}:${wallet}:${token}:${side}:${unix || firstString(row, ["id"])}`,
     chain,
     wallet,
     walletName: watched.name || firstString(makerInfo, ["twitter_name", "twitter_username"]) || "聪明钱包",
