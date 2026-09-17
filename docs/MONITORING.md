@@ -8,7 +8,7 @@ The hosted application stores token signals and charts in D1. A scheduler calls
 - `SITE_URL`: the deployed site origin
 - `MONITOR_SECRET`: the same secret configured in the hosted runtime
 
-The workflow starts every five minutes and polls nine times at 30-second
+The workflow starts every five minutes and polls five times at 60-second
 intervals. Its concurrency group prevents overlapping monitor jobs.
 
 ## Alert stages

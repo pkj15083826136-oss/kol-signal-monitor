@@ -10,6 +10,7 @@ export const maxDuration = 60;
 const CHAINS = ["sol", "bsc", "base", "robinhood"] as const;
 const THRESHOLDS = [6, 18, 38, 58] as const;
 const CHAIN_LABEL: Record<string, string> = { sol: "Solana", bsc: "BSC", base: "Base", robinhood: "Robinhood" };
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 type Trade = {
   id: string;
@@ -102,10 +103,17 @@ async function runMonitor() {
   let feedErrors: string[] = [];
   const touched = new Map<string, { chain: string; token: string }>();
   try {
-    const feeds = await Promise.all(CHAINS.flatMap((chain) => [
-      getKolTrades(chain).then((data) => ({ chain, data, error: "" })).catch((error) => ({ chain, data: { list: [] }, error: `kol:${chain}:${error instanceof Error ? error.message : String(error)}` })),
-      getSmartMoneyTrades(chain).then((data) => ({ chain, data, error: "" })).catch((error) => ({ chain, data: { list: [] }, error: `smartmoney:${chain}:${error instanceof Error ? error.message : String(error)}` })),
-    ]));
+    const feeds: Array<{ chain: string; data: unknown; error: string }> = [];
+    for (const chain of CHAINS) {
+      for (const [kind, getter] of [["kol", getKolTrades], ["smartmoney", getSmartMoneyTrades]] as const) {
+        try {
+          feeds.push({ chain, data: await getter(chain), error: "" });
+        } catch (error) {
+          feeds.push({ chain, data: { list: [] }, error: `${kind}:${chain}:${error instanceof Error ? error.message : String(error)}` });
+        }
+        await pause(800);
+      }
+    }
     feedErrors = feeds.map((feed) => feed.error).filter(Boolean);
     fetchedRows = feeds.reduce((sum, feed) => sum + asList(feed.data).length, 0);
     const parsed = feeds.flatMap(({ chain, data }) => asList(data).map((row) => parseTrade(chain, row)).filter((row): row is Trade => Boolean(row)));
