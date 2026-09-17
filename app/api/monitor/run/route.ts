@@ -93,7 +93,7 @@ async function latestNarrative(db: D1Database, chain: string, token: string): Pr
   };
 }
 
-async function runMonitor() {
+async function runMonitor(selectedChain: typeof CHAINS[number]) {
   const db = env.DB;
   const startedAt = new Date().toISOString();
   let newTrades = 0;
@@ -104,14 +104,14 @@ async function runMonitor() {
   const touched = new Map<string, { chain: string; token: string }>();
   try {
     const feeds: Array<{ chain: string; data: unknown; error: string }> = [];
-    for (const chain of CHAINS) {
+    for (const chain of [selectedChain]) {
       for (const [kind, getter] of [["kol", getKolTrades], ["smartmoney", getSmartMoneyTrades]] as const) {
         try {
           feeds.push({ chain, data: await getter(chain), error: "" });
         } catch (error) {
           feeds.push({ chain, data: { list: [] }, error: `${kind}:${chain}:${error instanceof Error ? error.message : String(error)}` });
         }
-        await pause(800);
+        await pause(2000);
       }
     }
     feedErrors = feeds.map((feed) => feed.error).filter(Boolean);
@@ -145,14 +145,17 @@ async function runMonitor() {
         .bind(chain, token).first<{ holder_count: number; total_buy_usd: number; total_token_amount: number }>();
       const holderCount = Number(aggregate?.holder_count || 0);
       const due = [...THRESHOLDS].reverse().find((threshold) => holderCount >= threshold);
-      const infoValue = await getTokenInfo(chain, token).catch(() => ({}));
-      const info = unwrapTokenInfo(infoValue);
-      const price = firstNumber(info, ["price", "price_usd"]);
+      const previousSignal = await db.prepare("SELECT price FROM signals WHERE chain = ? AND token_address = ? ORDER BY alerted_at DESC LIMIT 1").bind(chain, token).first<{ price: string }>();
+      const price = Number(previousSignal?.price || 0);
       await db.prepare("INSERT INTO snapshots (chain, token_address, holder_count, total_buy_usd, total_token_amount, market_value, captured_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
         .bind(chain, token, holderCount, Math.round(Number(aggregate?.total_buy_usd || 0)), Number(aggregate?.total_token_amount || 0), Number(aggregate?.total_token_amount || 0) * price, new Date().toISOString()).run();
       if (!due) continue;
       const exists = await db.prepare("SELECT 1 FROM signals WHERE chain = ? AND token_address = ? AND threshold = ?").bind(chain, token, due).first();
       if (exists) continue;
+
+      const infoValue = await getTokenInfo(chain, token).catch(() => ({}));
+      const info = unwrapTokenInfo(infoValue);
+      const currentPrice = firstNumber(info, ["price", "price_usd"]);
 
       const name = firstString(info, ["name", "token_name"]) || "Unknown";
       const symbol = firstString(info, ["symbol", "token_symbol"]) || "—";
@@ -168,7 +171,7 @@ async function runMonitor() {
       const inserted = await db.prepare(`INSERT INTO signals
         (chain, token_address, name, symbol, logo, threshold, holder_count, market_cap, liquidity, holders, volume_24h, price, gmgn_theme, ai_analysis, wallet_names_json, alerted_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .bind(chain, token, name, symbol, firstString(info, ["logo", "logo_url"]), due, holderCount, Math.round(marketCap), Math.round(liquidity), Math.round(holders), Math.round(volume24h), String(price), gmgnTheme.slice(0, 500), narrative.aiAnalysis, JSON.stringify(walletNames), new Date().toISOString()).run();
+        .bind(chain, token, name, symbol, firstString(info, ["logo", "logo_url"]), due, holderCount, Math.round(marketCap), Math.round(liquidity), Math.round(holders), Math.round(volume24h), String(currentPrice), gmgnTheme.slice(0, 500), narrative.aiAnalysis, JSON.stringify(walletNames), new Date().toISOString()).run();
       const signalId = Number(inserted.meta.last_row_id);
       if (due === 6 || due === 38) {
         for (const post of narrative.posts) {
@@ -186,7 +189,7 @@ async function runMonitor() {
     }
     const finishedAt = new Date().toISOString();
     await db.prepare("INSERT INTO monitor_runs (status, new_trades, new_signals, started_at, finished_at) VALUES ('success', ?, ?, ?, ?)").bind(newTrades, newSignals, startedAt, finishedAt).run();
-    return { ok: true, fetchedRows, matchedRows, newTrades, newSignals, feedErrors, startedAt, finishedAt };
+    return { ok: true, selectedChain, fetchedRows, matchedRows, newTrades, newSignals, feedErrors, startedAt, finishedAt };
   } catch (error) {
     const finishedAt = new Date().toISOString();
     const message = error instanceof Error ? error.message : "未知错误";
@@ -198,7 +201,11 @@ async function runMonitor() {
 export async function POST(request: Request) {
   if (!authorized(request)) return Response.json({ error: "Unauthorized" }, { status: 401 });
   try {
-    return Response.json(await runMonitor());
+    const requested = new URL(request.url).searchParams.get("chain");
+    const selectedChain = CHAINS.includes(requested as typeof CHAINS[number])
+      ? requested as typeof CHAINS[number]
+      : CHAINS[Math.floor(Date.now() / 60000) % CHAINS.length];
+    return Response.json(await runMonitor(selectedChain));
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "监控运行失败" }, { status: 500 });
   }
