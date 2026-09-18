@@ -93,7 +93,9 @@ async function latestNarrative(db: D1Database, chain: string, token: string): Pr
   };
 }
 
-async function runMonitor(selectedChain: typeof CHAINS[number]) {
+type SuppliedFeeds = { kol?: unknown; smartmoney?: unknown };
+
+async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: SuppliedFeeds) {
   const db = env.DB;
   const startedAt = new Date().toISOString();
   let newTrades = 0;
@@ -104,14 +106,19 @@ async function runMonitor(selectedChain: typeof CHAINS[number]) {
   const touched = new Map<string, { chain: string; token: string }>();
   try {
     const feeds: Array<{ chain: string; data: unknown; error: string }> = [];
-    for (const chain of [selectedChain]) {
-      for (const [kind, getter] of [["kol", getKolTrades], ["smartmoney", getSmartMoneyTrades]] as const) {
-        try {
-          feeds.push({ chain, data: await getter(chain), error: "" });
-        } catch (error) {
-          feeds.push({ chain, data: { list: [] }, error: `${kind}:${chain}:${error instanceof Error ? error.message : String(error)}` });
+    if (supplied) {
+      feeds.push({ chain: selectedChain, data: supplied.kol ?? { list: [] }, error: "" });
+      feeds.push({ chain: selectedChain, data: supplied.smartmoney ?? { list: [] }, error: "" });
+    } else {
+      for (const chain of [selectedChain]) {
+        for (const [kind, getter] of [["kol", getKolTrades], ["smartmoney", getSmartMoneyTrades]] as const) {
+          try {
+            feeds.push({ chain, data: await getter(chain), error: "" });
+          } catch (error) {
+            feeds.push({ chain, data: { list: [] }, error: `${kind}:${chain}:${error instanceof Error ? error.message : String(error)}` });
+          }
+          await pause(2000);
         }
-        await pause(2000);
       }
     }
     feedErrors = feeds.map((feed) => feed.error).filter(Boolean);
@@ -205,7 +212,12 @@ export async function POST(request: Request) {
     const selectedChain = CHAINS.includes(requested as typeof CHAINS[number])
       ? requested as typeof CHAINS[number]
       : CHAINS[Math.floor(Date.now() / 60000) % CHAINS.length];
-    return Response.json(await runMonitor(selectedChain));
+    let supplied: SuppliedFeeds | undefined;
+    if ((request.headers.get("content-type") || "").includes("application/json")) {
+      const body = await request.json().catch(() => null) as { feeds?: SuppliedFeeds } | null;
+      supplied = body?.feeds;
+    }
+    return Response.json(await runMonitor(selectedChain, supplied));
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "监控运行失败" }, { status: 500 });
   }
