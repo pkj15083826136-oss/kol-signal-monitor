@@ -196,6 +196,10 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
       if (!due) continue;
       const exists = await db.prepare("SELECT 1 FROM signals WHERE chain = ? AND token_address = ? AND threshold = ?").bind(chain, token, due).first();
       if (exists) continue;
+      // Narrative search is the slowest part of a signal. Generate at most one
+      // new alert per pass; remaining qualifying tokens are picked up by the
+      // reconciliation query on the next pass instead of stalling ingestion.
+      if (newSignals >= 1) continue;
 
       const latestTrade = await db.prepare("SELECT raw_json FROM trades WHERE chain = ? AND token_address = ? ORDER BY traded_at DESC LIMIT 1")
         .bind(chain, token).first<{ raw_json: string }>();
