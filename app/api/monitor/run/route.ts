@@ -154,8 +154,21 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
       touched.set(`${trade.chain}:${trade.token}`, { chain: trade.chain, token: trade.token });
     }
 
+    // Reconcile recent qualifying tokens on every pass. This closes the gap
+    // where a sixth wallet was persisted in an earlier pass but the signal
+    // step did not complete, and it lets the next pass repair the alert.
+    const qualifying = await db.prepare(`SELECT chain, token_address
+      FROM token_wallets
+      WHERE chain = ? AND balance > 0.000001 AND datetime(last_buy_at) >= datetime('now', '-6 hours')
+      GROUP BY chain, token_address
+      HAVING COUNT(*) >= ?`)
+      .bind(selectedChain, THRESHOLDS[0]).all<{ chain: string; token_address: string }>();
+    for (const row of qualifying.results) {
+      touched.set(`${row.chain}:${row.token_address}`, { chain: row.chain, token: row.token_address });
+    }
+
     for (const { chain, token } of touched.values()) {
-      const aggregate = await db.prepare("SELECT COUNT(*) holder_count, COALESCE(SUM(buy_usd),0) total_buy_usd, COALESCE(SUM(balance),0) total_token_amount FROM token_wallets WHERE chain = ? AND token_address = ? AND balance > 0")
+      const aggregate = await db.prepare("SELECT COUNT(*) holder_count, COALESCE(SUM(buy_usd),0) total_buy_usd, COALESCE(SUM(balance),0) total_token_amount FROM token_wallets WHERE chain = ? AND token_address = ? AND balance > 0.000001")
         .bind(chain, token).first<{ holder_count: number; total_buy_usd: number; total_token_amount: number }>();
       const holderCount = Number(aggregate?.holder_count || 0);
       const due = [...THRESHOLDS].reverse().find((threshold) => holderCount >= threshold);
@@ -180,7 +193,7 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
       const gmgnTheme = firstString(info, ["description", "narrative", "theme", "bio"]) || "暂无明确项目介绍";
       let narrative = (due === 6 || due === 38) ? await analyzeNarrative({ chain, address: token, symbol, name }).catch(() => null) : await latestNarrative(db, chain, token);
       if (!narrative) narrative = { aiAnalysis: "社媒有效信息不足，暂未形成清晰叙事。", posts: [], raw: "" };
-      const walletRows = await db.prepare("SELECT wallet_name FROM token_wallets WHERE chain = ? AND token_address = ? AND balance > 0 ORDER BY first_buy_at LIMIT 80").bind(chain, token).all<{ wallet_name: string }>();
+      const walletRows = await db.prepare("SELECT wallet_name FROM token_wallets WHERE chain = ? AND token_address = ? AND balance > 0.000001 ORDER BY first_buy_at LIMIT 80").bind(chain, token).all<{ wallet_name: string }>();
       const walletNames = walletRows.results.map((row) => row.wallet_name);
       const inserted = await db.prepare(`INSERT INTO signals
         (chain, token_address, name, symbol, logo, threshold, holder_count, market_cap, liquidity, holders, volume_24h, price, gmgn_theme, ai_analysis, wallet_names_json, alerted_at)
