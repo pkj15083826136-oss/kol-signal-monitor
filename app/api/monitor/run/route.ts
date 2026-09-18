@@ -201,7 +201,9 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
       const due = [...THRESHOLDS].reverse().find((threshold) => holderCount >= threshold);
       const previousSignal = await db.prepare("SELECT id, price FROM signals WHERE chain = ? AND token_address = ? ORDER BY alerted_at DESC LIMIT 1").bind(chain, token).first<{ id: number; price: string }>();
       if (!previousSignal && holderCount < THRESHOLDS[0]) continue;
-      const liveMarket = await getMarketData(chain, token).catch(() => null);
+      // Ave CU is used once for a token's first signal; routine snapshots use
+      // public market feeds so continuous monitoring does not burn the quota.
+      const liveMarket = await getMarketData(chain, token, { useAve: !previousSignal }).catch(() => null);
       const price = liveMarket?.price || Number(previousSignal?.price || 0);
       await db.prepare("INSERT INTO snapshots (chain, token_address, holder_count, total_buy_usd, total_token_amount, market_value, captured_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
         .bind(chain, token, holderCount, Math.round(Number(aggregate?.total_buy_usd || 0)), Number(aggregate?.total_token_amount || 0), Number(aggregate?.total_token_amount || 0) * price, new Date().toISOString()).run();

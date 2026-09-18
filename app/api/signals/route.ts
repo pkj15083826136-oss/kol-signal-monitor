@@ -4,6 +4,7 @@ import { getMarketData } from "@/lib/market";
 export const dynamic = "force-dynamic";
 
 type Row = Record<string, unknown>;
+const backfillAttempts = new Map<string, number>();
 
 function mapSignal(row: Row) {
   return {
@@ -18,8 +19,14 @@ export async function GET() {
   const rows = await env.DB.prepare(`SELECT id, chain, token_address, name, symbol, logo, threshold, holder_count, market_cap,
     liquidity, holders, volume_24h, gmgn_theme, ai_analysis, wallet_names_json, alerted_at
     FROM signals ORDER BY alerted_at DESC LIMIT 80`).all<Row>();
-  const stale = rows.results.filter((row) => !Number(row.liquidity) || !Number(row.holders) || !Number(row.volume_24h)).slice(0, 4);
+  const now = Date.now();
+  const stale = rows.results.filter((row) => {
+    if (Number(row.liquidity) && Number(row.holders) && Number(row.volume_24h)) return false;
+    const key = `${row.chain}:${row.token_address}`;
+    return now - (backfillAttempts.get(key) || 0) > 6 * 60 * 60 * 1000;
+  }).slice(0, 4);
   await Promise.all(stale.map(async (row) => {
+    backfillAttempts.set(`${row.chain}:${row.token_address}`, now);
     const market = await getMarketData(String(row.chain), String(row.token_address)).catch(() => null);
     if (!market) return;
     const next = {

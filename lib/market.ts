@@ -101,11 +101,12 @@ async function getAveMarket(chain: string, address: string): Promise<Partial<Mar
   } catch { return {}; }
 }
 
-export async function getMarketData(chain: string, address: string): Promise<MarketData> {
+export async function getMarketData(chain: string, address: string, options: { useAve?: boolean } = {}): Promise<MarketData> {
+  const useAve = options.useAve !== false;
   const [dex, gmgn, ave] = await Promise.all([
     getDexMarket(chain, address).catch(() => emptyMarket),
     getGmgnPublicMarket(chain, address),
-    getAveMarket(chain, address),
+    useAve ? getAveMarket(chain, address) : Promise.resolve({}),
   ]);
   return {
     name: ave.name || gmgn.name || dex.name, symbol: ave.symbol || gmgn.symbol || dex.symbol, logo: ave.logo || gmgn.logo || dex.logo,
