@@ -204,6 +204,11 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
       // Ave CU is used once for a token's first signal; routine snapshots use
       // public market feeds so continuous monitoring does not burn the quota.
       const liveMarket = await getMarketData(chain, token, { useAve: !previousSignal }).catch(() => null);
+      const isOldHighCapFirstSignal = !previousSignal
+        && Number(liveMarket?.marketCap || 0) > 10_000_000
+        && Number(liveMarket?.createdAt || 0) > 0
+        && Date.now() - Number(liveMarket?.createdAt) > 10 * 24 * 60 * 60 * 1000;
+      if (isOldHighCapFirstSignal) continue;
       const price = liveMarket?.price || Number(previousSignal?.price || 0);
       await db.prepare("INSERT INTO snapshots (chain, token_address, holder_count, total_buy_usd, total_token_amount, market_value, captured_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
         .bind(chain, token, holderCount, Math.round(Number(aggregate?.total_buy_usd || 0)), Number(aggregate?.total_token_amount || 0), Number(aggregate?.total_token_amount || 0) * price, new Date().toISOString()).run();
@@ -252,7 +257,7 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
       let gmgnTheme = liveMarket?.description || firstString(info, ["description", "narrative", "theme", "bio"]);
       let narrative = (due === 6 || due === 38) ? await analyzeNarrative({ chain, address: token, symbol, name }).catch(() => null) : await latestNarrative(db, chain, token);
       if (!narrative) narrative = { projectIntro: "", aiAnalysis: "社媒有效信息不足，暂未形成清晰叙事。", posts: [], raw: "" };
-      if (!gmgnTheme) gmgnTheme = narrative.projectIntro || (launchpad ? `由 ${launchpad} 发行；暂未找到足够资料确认具体用途。` : "暂未找到足够资料确认项目用途。");
+      if (!gmgnTheme) gmgnTheme = launchpad ? `由 ${launchpad} 发行；暂无可核验的官方项目简介。` : "暂无可核验的官方项目简介。";
       const walletRows = await db.prepare("SELECT wallet_name FROM token_wallets WHERE chain = ? AND token_address = ? AND balance > 0.000001 ORDER BY first_buy_at LIMIT 80").bind(chain, token).all<{ wallet_name: string }>();
       const walletNames = walletRows.results.map((row) => row.wallet_name);
       const inserted = await db.prepare(`INSERT INTO signals

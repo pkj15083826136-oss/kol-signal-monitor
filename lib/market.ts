@@ -14,12 +14,13 @@ export type MarketData = {
   volume24h: number;
   pairAddress: string;
   dexUrl: string;
+  createdAt: number;
 };
 
 export type Candle = { time: number; open: number; high: number; low: number; close: number; volume: number };
 export type KlineResult = { candles: Candle[]; source: string; reason: string };
 
-const emptyMarket: MarketData = { name: "", symbol: "", logo: "", description: "", price: 0, marketCap: 0, liquidity: 0, holders: 0, volume24h: 0, pairAddress: "", dexUrl: "" };
+const emptyMarket: MarketData = { name: "", symbol: "", logo: "", description: "", price: 0, marketCap: 0, liquidity: 0, holders: 0, volume24h: 0, pairAddress: "", dexUrl: "", createdAt: 0 };
 const dexChain: Record<string, string> = { sol: "solana", bsc: "bsc", base: "base", robinhood: "robinhood" };
 const geckoChain: Record<string, string> = { sol: "solana", bsc: "bsc", base: "base" };
 const aveChain: Record<string, string> = { sol: "solana", bsc: "bsc", base: "base", robinhood: "robinhood" };
@@ -27,6 +28,11 @@ const aveChain: Record<string, string> = { sol: "solana", bsc: "bsc", base: "bas
 function record(value: unknown): JsonRecord { return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {}; }
 function number(value: unknown): number { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : 0; }
 function string(value: unknown): string { return typeof value === "string" ? value.trim() : ""; }
+function timestamp(value: unknown): number {
+  const parsed = number(value);
+  if (!parsed) return 0;
+  return parsed < 1e12 ? parsed * 1000 : parsed;
+}
 function runtimeEnv(name: string): string { const value = (env as unknown as Record<string, unknown>)[name]; return typeof value === "string" ? value : ""; }
 
 function bestPair(payload: unknown, address: string) {
@@ -52,7 +58,7 @@ async function getDexMarket(chain: string, address: string): Promise<MarketData>
     name: string(base.name), symbol: string(base.symbol), logo: string(info.imageUrl), description: "",
     price: number(pair.priceUsd), marketCap: number(pair.marketCap) || number(pair.fdv),
     liquidity: number(record(pair.liquidity).usd), holders: 0, volume24h: number(record(pair.volume).h24),
-    pairAddress: string(pair.pairAddress), dexUrl: string(pair.url),
+    pairAddress: string(pair.pairAddress), dexUrl: string(pair.url), createdAt: timestamp(pair.pairCreatedAt),
   };
 }
 
@@ -73,6 +79,7 @@ async function getGmgnPublicMarket(chain: string, address: string): Promise<Part
       liquidity: number(token.liquidity) || number(token.liquidity_usd),
       holders: number(token.holder_count) || number(token.holders),
       volume24h: number(token.volume_24h) || number(token.volume24h) || number(token.swap_volume_24h),
+      createdAt: timestamp(token.created_at) || timestamp(token.creation_time) || timestamp(token.launch_time) || timestamp(token.open_timestamp),
     };
   } catch { return {}; }
 }
@@ -94,9 +101,10 @@ async function getAveMarket(chain: string, address: string): Promise<Partial<Mar
     const volume24h = Math.max(0, ...pairs.map((pair) => number(pair.volume_u)));
     return {
       name: string(token.name), symbol: string(token.symbol), logo: string(token.logo_url),
-      description: string(token.description) || string(token.token_introduction) || string(token.introduction) || string(token.ai_description) || string(token.ai_intro) || string(token.project_intro),
+      description: string(token.description) || string(token.token_introduction) || string(token.introduction) || string(token.project_intro),
       price: number(token.current_price_usd), marketCap: number(token.market_cap), liquidity: number(token.tvl),
       holders: number(token.holders), volume24h,
+      createdAt: timestamp(token.created_at) || timestamp(token.launch_at) || timestamp(token.open_timestamp),
     };
   } catch { return {}; }
 }
@@ -108,12 +116,16 @@ export async function getMarketData(chain: string, address: string, options: { u
     getGmgnPublicMarket(chain, address),
     useAve ? getAveMarket(chain, address) : Promise.resolve({}),
   ]);
+  const createdTimes = [dex.createdAt, gmgn.createdAt, ave.createdAt].filter((value): value is number => Boolean(value));
   return {
-    name: ave.name || gmgn.name || dex.name, symbol: ave.symbol || gmgn.symbol || dex.symbol, logo: ave.logo || gmgn.logo || dex.logo,
-    description: ave.description || gmgn.description || "", price: ave.price || gmgn.price || dex.price,
+    // Token identity follows the contract's primary market metadata. Ave is a
+    // fallback here because its token index can occasionally attach an alias
+    // from a different project to the same contract (as seen with BONK).
+    name: gmgn.name || dex.name || ave.name, symbol: gmgn.symbol || dex.symbol || ave.symbol, logo: gmgn.logo || ave.logo || dex.logo,
+    description: gmgn.description || ave.description || "", price: ave.price || gmgn.price || dex.price,
     marketCap: ave.marketCap || gmgn.marketCap || dex.marketCap, liquidity: ave.liquidity || gmgn.liquidity || dex.liquidity,
     holders: ave.holders || gmgn.holders || 0, volume24h: ave.volume24h || gmgn.volume24h || dex.volume24h,
-    pairAddress: dex.pairAddress, dexUrl: dex.dexUrl,
+    pairAddress: dex.pairAddress, dexUrl: dex.dexUrl, createdAt: createdTimes.length ? Math.min(...createdTimes) : 0,
   };
 }
 
@@ -132,7 +144,7 @@ async function getAveKline(chain: string, address: string, interval: 5 | 15): Pr
   return points.map(record).map((row) => ({ time: number(row.time), open: number(row.open), high: number(row.high), low: number(row.low), close: number(row.close), volume: number(row.volume) })).filter((row) => row.time && row.high && row.low).sort((a, b) => a.time - b.time);
 }
 
-async function getGeckoKline(chain: string, address: string): Promise<Candle[]> {
+async function getGeckoKline(chain: string, address: string, interval: 5 | 15): Promise<Candle[]> {
   const network = geckoChain[chain];
   if (!network) return [];
   const poolsResponse = await fetch(`https://api.geckoterminal.com/api/v2/networks/${network}/tokens/${encodeURIComponent(address)}/pools?page=1`, {
@@ -144,7 +156,7 @@ async function getGeckoKline(chain: string, address: string): Promise<Candle[]> 
   rows.sort((a, b) => number(record(b.attributes).reserve_in_usd) - number(record(a.attributes).reserve_in_usd));
   const poolAddress = string(record(rows[0]?.attributes).address);
   if (!poolAddress) return [];
-  const candleResponse = await fetch(`https://api.geckoterminal.com/api/v2/networks/${network}/pools/${encodeURIComponent(poolAddress)}/ohlcv/minute?aggregate=5&limit=200&currency=usd`, {
+  const candleResponse = await fetch(`https://api.geckoterminal.com/api/v2/networks/${network}/pools/${encodeURIComponent(poolAddress)}/ohlcv/minute?aggregate=${interval}&limit=200&currency=usd`, {
     headers: { Accept: "application/json;version=20230302" }, signal: AbortSignal.timeout(8000),
   });
   if (!candleResponse.ok) return [];
@@ -154,14 +166,14 @@ async function getGeckoKline(chain: string, address: string): Promise<Candle[]> 
   return raw.filter(Array.isArray).map((row) => ({ time: number(row[0]), open: number(row[1]), high: number(row[2]), low: number(row[3]), close: number(row[4]), volume: number(row[5]) })).sort((a, b) => a.time - b.time);
 }
 
-export async function getKlineData(chain: string, address: string): Promise<KlineResult> {
+export async function getKlineData(chain: string, address: string, interval: 5 | 15 = 5): Promise<KlineResult> {
   const aveKey = runtimeEnv("AVE_API_KEY");
-  const ave = await getAveKline(chain, address, 5).catch(() => []);
-  if (ave.length) return { candles: ave, source: "Ave.ai · 5分钟", reason: "" };
-  const gecko = await getGeckoKline(chain, address).catch(() => []);
-  if (gecko.length) return { candles: gecko, source: "GeckoTerminal · 5分钟", reason: "" };
+  const ave = await getAveKline(chain, address, interval).catch(() => []);
+  if (ave.length) return { candles: ave, source: `Ave.ai · ${interval}分钟`, reason: "" };
+  const gecko = await getGeckoKline(chain, address, interval).catch(() => []);
+  if (gecko.length) return { candles: gecko, source: `GeckoTerminal · ${interval}分钟`, reason: "" };
   return {
     candles: [], source: "",
-    reason: aveKey ? "Ave.ai 与主流动池数据源均未返回该代币的K线，通常是尚未形成可索引交易池或链暂未被支持。" : "当前未配置 Ave.ai API 密钥，公共主流动池数据源也未返回该代币K线。配置 Ave.ai 后会自动优先读取5分钟K线。",
+    reason: aveKey ? `Ave.ai 与主流动池数据源均未返回该代币的${interval}分钟K线，通常是尚未形成可索引交易池或链暂未被支持。` : `当前未配置 Ave.ai API 密钥，公共主流动池数据源也未返回该代币${interval}分钟K线。`,
   };
 }
