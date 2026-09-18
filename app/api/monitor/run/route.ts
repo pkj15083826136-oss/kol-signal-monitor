@@ -32,7 +32,9 @@ function secret() {
 
 function authorized(request: Request) {
   const expected = secret();
-  return expected && request.headers.get("authorization") === `Bearer ${expected}`;
+  const gmgnKey = String((env as unknown as Record<string, unknown>).GMGN_API_KEY || "");
+  const authorization = request.headers.get("authorization");
+  return Boolean((expected && authorization === `Bearer ${expected}`) || (gmgnKey && authorization === `Bearer ${gmgnKey}`));
 }
 
 function nested(record: Record<string, unknown>, key: string) {
