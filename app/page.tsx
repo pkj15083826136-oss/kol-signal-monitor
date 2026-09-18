@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import Dashboard, { type SignalRow } from "./dashboard";
 import { watchedWallets } from "@/lib/wallets";
+import { verifiedTokenIdentity } from "@/lib/token-identity";
 
 export const dynamic = "force-dynamic";
 
@@ -16,12 +17,14 @@ async function loadSignals(): Promise<{ signals: SignalRow[]; lastRun: string | 
       FROM signals ORDER BY alerted_at DESC LIMIT 60`).all<Record<string, unknown>>();
     const run = await env.DB.prepare("SELECT status, finished_at FROM monitor_runs ORDER BY id DESC LIMIT 1").first<{ status: string; finished_at: string }>();
     return {
-      signals: rows.results.map((row) => ({
-        id: Number(row.id), chain: String(row.chain), tokenAddress: String(row.token_address), name: String(row.name), symbol: String(row.symbol), logo: String(row.logo || ""),
+      signals: rows.results.map((row) => {
+        const identity = verifiedTokenIdentity(String(row.chain), String(row.token_address), String(row.name), String(row.symbol));
+        return ({
+        id: Number(row.id), chain: String(row.chain), tokenAddress: String(row.token_address), name: identity.name, symbol: identity.symbol, logo: String(row.logo || ""),
         threshold: Number(row.threshold), holderCount: Number(row.holder_count), marketCap: Number(row.market_cap), liquidity: Number(row.liquidity),
         holders: Number(row.holders), volume24h: Number(row.volume_24h), gmgnTheme: String(row.gmgn_theme), aiAnalysis: String(row.ai_analysis),
         walletNames: JSON.parse(String(row.wallet_names_json || "[]")), alertedAt: String(row.alerted_at),
-      })),
+      }); }),
       lastRun: run?.finished_at ?? null,
       monitorOk: run?.status === "success",
     };
