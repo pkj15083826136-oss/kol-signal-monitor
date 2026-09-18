@@ -21,7 +21,7 @@ await new Promise((resolve) => setTimeout(resolve, 2000));
 const smartmoney = await gmgn("smartmoney");
 const response = await fetch(`${process.env.SITE_URL.replace(/\/$/, "")}/api/monitor/run?chain=${chain}`, {
   method: "POST",
-  headers: { Authorization: `Bearer ${process.env.MONITOR_SECRET}`, "Content-Type": "application/json" },
+  headers: { Authorization: `Bearer ${process.env.GMGN_API_KEY}`, "Content-Type": "application/json" },
   body: JSON.stringify({ feeds: { kol, smartmoney } }),
 });
 const text = await response.text();
