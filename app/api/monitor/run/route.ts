@@ -10,6 +10,22 @@ export const maxDuration = 60;
 const CHAINS = ["sol", "bsc", "base", "robinhood"] as const;
 const THRESHOLDS = [6, 18, 38, 58] as const;
 const CHAIN_LABEL: Record<string, string> = { sol: "Solana", bsc: "BSC", base: "Base", robinhood: "Robinhood" };
+const IGNORED_TOKENS: Record<string, Set<string>> = {
+  sol: new Set([
+    "so11111111111111111111111111111111111111112",
+    "epjfwdd5aufqssqmhbqnsnxzybapc8g4wgegktwytdt1v",
+  ]),
+  bsc: new Set([
+    "0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c",
+    "0x55d398326f99059ff775485246999027b3197955",
+    "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d",
+  ]),
+  base: new Set([
+    "0x4200000000000000000000000000000000000006",
+    "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+  ]),
+  robinhood: new Set(),
+};
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 type Trade = {
@@ -52,6 +68,7 @@ function parseTrade(chain: string, row: Record<string, unknown>, source: "kol" |
   if (!watched && source !== "kol") return null;
   const token = firstString(row, ["token_address", "base_address", "base_token_address", "contract_address", "mint", "address"]) || firstString(tokenInfo, ["address", "token_address", "contract_address", "mint"]);
   if (!token || token.toLowerCase() === wallet.toLowerCase()) return null;
+  if (IGNORED_TOKENS[chain]?.has(token.toLowerCase())) return null;
   const rawSide = firstString(row, ["side", "event_type", "type", "action"]).toLowerCase();
   const side = rawSide.includes("buy") ? "buy" : rawSide.includes("sell") ? "sell" : null;
   if (!side) return null;
@@ -180,17 +197,24 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
       const exists = await db.prepare("SELECT 1 FROM signals WHERE chain = ? AND token_address = ? AND threshold = ?").bind(chain, token, due).first();
       if (exists) continue;
 
+      const latestTrade = await db.prepare("SELECT raw_json FROM trades WHERE chain = ? AND token_address = ? ORDER BY traded_at DESC LIMIT 1")
+        .bind(chain, token).first<{ raw_json: string }>();
+      let tradeRaw: Record<string, unknown> = {};
+      try { tradeRaw = asRecord(JSON.parse(latestTrade?.raw_json || "{}")); } catch { tradeRaw = {}; }
+      const tradeToken = asRecord(tradeRaw.base_token ?? tradeRaw.token ?? tradeRaw.token_info);
       const infoValue = await getTokenInfo(chain, token).catch(() => ({}));
       const info = unwrapTokenInfo(infoValue);
-      const currentPrice = firstNumber(info, ["price", "price_usd"]);
+      const currentPrice = firstNumber(info, ["price", "price_usd"]) || firstNumber(tradeRaw, ["price_usd", "price"]);
 
-      const name = firstString(info, ["name", "token_name"]) || "Unknown";
-      const symbol = firstString(info, ["symbol", "token_symbol"]) || "—";
-      const marketCap = firstNumber(info, ["market_cap", "marketcap", "fdv"]);
+      const symbol = firstString(info, ["symbol", "token_symbol"]) || firstString(tradeToken, ["symbol", "token_symbol"]) || "—";
+      const name = firstString(info, ["name", "token_name"]) || firstString(tradeToken, ["name", "token_name"]) || symbol;
+      const totalSupply = firstNumber(tradeToken, ["total_supply", "supply"]);
+      const marketCap = firstNumber(info, ["market_cap", "marketcap", "fdv"]) || currentPrice * totalSupply;
       const liquidity = firstNumber(info, ["liquidity", "liquidity_usd"]);
       const holders = firstNumber(info, ["holder_count", "holders"]);
       const volume24h = firstNumber(info, ["volume_24h", "volume24h", "swap_volume_24h"]);
-      const gmgnTheme = firstString(info, ["description", "narrative", "theme", "bio"]) || "暂无明确项目介绍";
+      const launchpad = firstString(tradeToken, ["launchpad"]);
+      const gmgnTheme = firstString(info, ["description", "narrative", "theme", "bio"]) || (launchpad ? `由 ${launchpad} 发行，等待社媒叙事确认` : "暂无明确项目介绍");
       let narrative = (due === 6 || due === 38) ? await analyzeNarrative({ chain, address: token, symbol, name }).catch(() => null) : await latestNarrative(db, chain, token);
       if (!narrative) narrative = { aiAnalysis: "社媒有效信息不足，暂未形成清晰叙事。", posts: [], raw: "" };
       const walletRows = await db.prepare("SELECT wallet_name FROM token_wallets WHERE chain = ? AND token_address = ? AND balance > 0.000001 ORDER BY first_buy_at LIMIT 80").bind(chain, token).all<{ wallet_name: string }>();
@@ -198,7 +222,7 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
       const inserted = await db.prepare(`INSERT INTO signals
         (chain, token_address, name, symbol, logo, threshold, holder_count, market_cap, liquidity, holders, volume_24h, price, gmgn_theme, ai_analysis, wallet_names_json, alerted_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .bind(chain, token, name, symbol, firstString(info, ["logo", "logo_url"]), due, holderCount, Math.round(marketCap), Math.round(liquidity), Math.round(holders), Math.round(volume24h), String(currentPrice), gmgnTheme.slice(0, 500), narrative.aiAnalysis, JSON.stringify(walletNames), new Date().toISOString()).run();
+        .bind(chain, token, name, symbol, firstString(info, ["logo", "logo_url"]) || firstString(tradeToken, ["logo", "logo_url"]), due, holderCount, Math.round(marketCap), Math.round(liquidity), Math.round(holders), Math.round(volume24h), String(currentPrice), gmgnTheme.slice(0, 500), narrative.aiAnalysis, JSON.stringify(walletNames), new Date().toISOString()).run();
       const signalId = Number(inserted.meta.last_row_id);
       if (due === 6 || due === 38) {
         for (const post of narrative.posts) {
