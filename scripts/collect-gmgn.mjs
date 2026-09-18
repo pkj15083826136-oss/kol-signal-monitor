@@ -1,5 +1,6 @@
 const chains = ["sol", "bsc", "base", "robinhood"];
-const chain = chains[Math.floor(Date.now() / 60000) % chains.length];
+const requestedChain = process.env.MONITOR_CHAIN;
+const chain = chains.includes(requestedChain) ? requestedChain : chains[Math.floor(Date.now() / 60000) % chains.length];
 
 async function gmgn(kind) {
   const query = new URLSearchParams({

@@ -41,12 +41,15 @@ function nested(record: Record<string, unknown>, key: string) {
   return asRecord(record[key]);
 }
 
-function parseTrade(chain: string, row: Record<string, unknown>): Trade | null {
+function parseTrade(chain: string, row: Record<string, unknown>, source: "kol" | "smartmoney"): Trade | null {
   const makerInfo = nested(row, "maker_info");
   const tokenInfo = asRecord(row.token ?? row.token_info ?? row.base_token);
   const wallet = firstString(row, ["maker", "wallet_address", "address", "owner"]) || firstString(makerInfo, ["address", "wallet_address"]);
   const watched = watchedByAddress.get(`${CHAIN_LABEL[chain].toLowerCase()}:${wallet.toLowerCase()}`);
-  if (!watched) return null;
+  // The fixed GMGN + Ave list remains the core pool. GMGN's KOL feed is also
+  // accepted dynamically so the monitor follows the live KOL badges shown on
+  // each token page instead of silently dropping newly-labelled KOL wallets.
+  if (!watched && source !== "kol") return null;
   const token = firstString(row, ["token_address", "base_address", "base_token_address", "contract_address", "mint", "address"]) || firstString(tokenInfo, ["address", "token_address", "contract_address", "mint"]);
   if (!token || token.toLowerCase() === wallet.toLowerCase()) return null;
   const rawSide = firstString(row, ["side", "event_type", "type", "action"]).toLowerCase();
@@ -61,7 +64,7 @@ function parseTrade(chain: string, row: Record<string, unknown>): Trade | null {
     id: hash ? `${hash}:${token}:${side}` : `${chain}:${wallet}:${token}:${side}:${unix || firstString(row, ["id"])}`,
     chain,
     wallet,
-    walletName: watched.name || firstString(makerInfo, ["twitter_name", "twitter_username"]) || "聪明钱包",
+    walletName: watched?.name || firstString(makerInfo, ["twitter_name", "twitter_username"]) || "GMGN动态KOL",
     token,
     side,
     usd,
@@ -107,17 +110,17 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
   let feedErrors: string[] = [];
   const touched = new Map<string, { chain: string; token: string }>();
   try {
-    const feeds: Array<{ chain: string; data: unknown; error: string }> = [];
+    const feeds: Array<{ chain: string; kind: "kol" | "smartmoney"; data: unknown; error: string }> = [];
     if (supplied) {
-      feeds.push({ chain: selectedChain, data: supplied.kol ?? { list: [] }, error: "" });
-      feeds.push({ chain: selectedChain, data: supplied.smartmoney ?? { list: [] }, error: "" });
+      feeds.push({ chain: selectedChain, kind: "kol", data: supplied.kol ?? { list: [] }, error: "" });
+      feeds.push({ chain: selectedChain, kind: "smartmoney", data: supplied.smartmoney ?? { list: [] }, error: "" });
     } else {
       for (const chain of [selectedChain]) {
         for (const [kind, getter] of [["kol", getKolTrades], ["smartmoney", getSmartMoneyTrades]] as const) {
           try {
-            feeds.push({ chain, data: await getter(chain), error: "" });
+            feeds.push({ chain, kind, data: await getter(chain), error: "" });
           } catch (error) {
-            feeds.push({ chain, data: { list: [] }, error: `${kind}:${chain}:${error instanceof Error ? error.message : String(error)}` });
+            feeds.push({ chain, kind, data: { list: [] }, error: `${kind}:${chain}:${error instanceof Error ? error.message : String(error)}` });
           }
           await pause(2000);
         }
@@ -125,7 +128,9 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
     }
     feedErrors = feeds.map((feed) => feed.error).filter(Boolean);
     fetchedRows = feeds.reduce((sum, feed) => sum + asList(feed.data).length, 0);
-    const parsed = feeds.flatMap(({ chain, data }) => asList(data).map((row) => parseTrade(chain, row)).filter((row): row is Trade => Boolean(row)));
+    const parsed = feeds
+      .flatMap(({ chain, kind, data }) => asList(data).map((row) => parseTrade(chain, row, kind)).filter((row): row is Trade => Boolean(row)))
+      .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
     matchedRows = parsed.length;
 
     for (const trade of parsed) {
