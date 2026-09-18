@@ -12,6 +12,7 @@ export type HotPost = {
 
 export type NarrativeResult = {
   aiAnalysis: string;
+  projectIntro: string;
   posts: HotPost[];
   raw: string;
 };
@@ -63,7 +64,7 @@ export async function analyzeNarrative(input: {
 
 综合相关性、点赞、转发、回复、浏览和作者影响力，最多选择3条。若有效帖子不足3条，按实际数量返回，不能用无关内容补齐。
 严格只输出JSON：
-{"ai_analysis":"40至80个中文汉字，最多两句，概括核心叙事并指出一个关键利好或风险","posts":[{"rank":1,"author":"@账号","posted_at":"ISO时间或空字符串","url":"原帖完整URL","original":"原帖核心内容，最多180字","chinese":"简短中文翻译或摘要，最多80字","engagement":"可获得的互动数据或空字符串"}]}`;
+{"project_intro":"30至70个中文汉字，客观说明项目/代币是做什么的；无法确认时明确写资料不足，不得编造","ai_analysis":"40至80个中文汉字，最多两句，概括核心叙事并指出一个关键利好或风险","posts":[{"rank":1,"author":"@账号","posted_at":"ISO时间或空字符串","url":"原帖完整URL","original":"原帖核心内容，最多180字","chinese":"简短中文翻译或摘要，最多80字","engagement":"可获得的互动数据或空字符串"}]}`;
 
   const response = await fetch("https://api.x.ai/v1/responses", {
     method: "POST",
@@ -96,6 +97,7 @@ export async function analyzeNarrative(input: {
       })
     : [];
   return {
+    projectIntro: String(parsed.project_intro ?? "").slice(0, 240),
     aiAnalysis: String(parsed.ai_analysis ?? "暂未形成清晰叙事，等待更多有效讨论。").slice(0, 240),
     posts,
     raw,

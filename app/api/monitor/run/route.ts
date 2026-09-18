@@ -103,11 +103,12 @@ function formatMoney(value: number) {
 }
 
 async function latestNarrative(db: D1Database, chain: string, token: string): Promise<NarrativeResult | null> {
-  const signal = await db.prepare("SELECT id, ai_analysis FROM signals WHERE chain = ? AND token_address = ? ORDER BY alerted_at DESC LIMIT 1").bind(chain, token).first<{ id: number; ai_analysis: string }>();
+  const signal = await db.prepare("SELECT id, ai_analysis, gmgn_theme FROM signals WHERE chain = ? AND token_address = ? ORDER BY alerted_at DESC LIMIT 1").bind(chain, token).first<{ id: number; ai_analysis: string; gmgn_theme: string }>();
   if (!signal) return null;
   const rows = await db.prepare("SELECT rank, author, posted_at, url, original, chinese, engagement FROM hot_posts WHERE signal_id = ? ORDER BY rank").bind(signal.id).all<Record<string, unknown>>();
   return {
     aiAnalysis: signal.ai_analysis,
+    projectIntro: signal.gmgn_theme,
     raw: "",
     posts: rows.results.map((row) => ({
       rank: Number(row.rank), author: String(row.author), postedAt: String(row.posted_at ?? ""), url: String(row.url),
@@ -184,6 +185,14 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
     for (const row of qualifying.results) {
       touched.set(`${row.chain}:${row.token_address}`, { chain: row.chain, token: row.token_address });
     }
+    // Keep recently alerted tokens sampled even when no new KOL trade arrives,
+    // so flat holdings, price-only changes and later exits remain visible.
+    const activeSignals = await db.prepare(`SELECT DISTINCT chain, token_address FROM signals
+      WHERE chain = ? AND datetime(alerted_at) >= datetime('now', '-48 hours')
+      ORDER BY alerted_at DESC LIMIT 30`).bind(selectedChain).all<{ chain: string; token_address: string }>();
+    for (const row of activeSignals.results) {
+      touched.set(`${row.chain}:${row.token_address}`, { chain: row.chain, token: row.token_address });
+    }
 
     for (const { chain, token } of touched.values()) {
       const aggregate = await db.prepare("SELECT COUNT(*) holder_count, COALESCE(SUM(buy_usd),0) total_buy_usd, COALESCE(SUM(balance),0) total_token_amount FROM token_wallets WHERE chain = ? AND token_address = ? AND balance > 0.000001")
@@ -238,9 +247,10 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
       const holders = liveMarket?.holders || firstNumber(info, ["holder_count", "holders"]);
       const volume24h = liveMarket?.volume24h || firstNumber(info, ["volume_24h", "volume24h", "swap_volume_24h"]);
       const launchpad = firstString(tradeToken, ["launchpad"]);
-      const gmgnTheme = liveMarket?.description || firstString(info, ["description", "narrative", "theme", "bio"]) || (launchpad ? `由 ${launchpad} 发行，等待社媒叙事确认` : "暂无明确项目介绍");
+      let gmgnTheme = liveMarket?.description || firstString(info, ["description", "narrative", "theme", "bio"]);
       let narrative = (due === 6 || due === 38) ? await analyzeNarrative({ chain, address: token, symbol, name }).catch(() => null) : await latestNarrative(db, chain, token);
-      if (!narrative) narrative = { aiAnalysis: "社媒有效信息不足，暂未形成清晰叙事。", posts: [], raw: "" };
+      if (!narrative) narrative = { projectIntro: "", aiAnalysis: "社媒有效信息不足，暂未形成清晰叙事。", posts: [], raw: "" };
+      if (!gmgnTheme) gmgnTheme = narrative.projectIntro || (launchpad ? `由 ${launchpad} 发行；暂未找到足够资料确认具体用途。` : "暂未找到足够资料确认项目用途。");
       const walletRows = await db.prepare("SELECT wallet_name FROM token_wallets WHERE chain = ? AND token_address = ? AND balance > 0.000001 ORDER BY first_buy_at LIMIT 80").bind(chain, token).all<{ wallet_name: string }>();
       const walletNames = walletRows.results.map((row) => row.wallet_name);
       const inserted = await db.prepare(`INSERT INTO signals
