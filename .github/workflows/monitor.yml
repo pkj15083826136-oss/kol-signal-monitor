@@ -1,4 +1,5 @@
 name: KOL signal monitor
+# Continuous collector; code and schedule changes restart the active polling window.
 
 on:
   schedule:
