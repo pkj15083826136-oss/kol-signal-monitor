@@ -1,14 +1,15 @@
 name: KOL signal monitor
 
 on:
+  schedule:
+    - cron: "7 * * * *"
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
       - ".github/workflows/monitor.yml"
       - "scripts/collect-gmgn.mjs"
-  schedule:
-    - cron: "*/5 * * * *"
-  workflow_dispatch:
+      - "app/api/monitor/run/route.ts"
 
 concurrency:
   group: kol-signal-monitor
@@ -17,7 +18,7 @@ concurrency:
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - name: Poll monitored wallets every minute
@@ -27,7 +28,9 @@ jobs:
           GMGN_API_KEY: ${{ secrets.GMGN_API_KEY }}
         run: |
           set -euo pipefail
-          for attempt in $(seq 1 5); do
-            node scripts/collect-gmgn.mjs
-            if [ "$attempt" -lt 5 ]; then sleep 60; fi
+          chains=(sol bsc base robinhood)
+          for attempt in $(seq 1 75); do
+            chain_index=$(( (attempt - 1) % 4 ))
+            MONITOR_CHAIN="${chains[$chain_index]}" node scripts/collect-gmgn.mjs
+            if [ "$attempt" -lt 75 ]; then sleep 48; fi
           done
