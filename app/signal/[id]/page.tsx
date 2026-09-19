@@ -1,5 +1,7 @@
 import { env } from "cloudflare:workers";
 import { ArrowLeft, ExternalLink, Sparkles, Users } from "lucide-react";
+import Image from "next/image";
+import Link from "next/link";
 import SignalChart from "./chart";
 import KlineChart from "./kline-chart";
 import CopyAddress from "./copy-address";
@@ -11,13 +13,15 @@ function validImage(value: string) { return /^https:\/\//i.test(value); }
 
 export default async function SignalDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const signal = await env.DB.prepare("SELECT * FROM signals WHERE id = ?").bind(Number(id)).first<Record<string, unknown>>();
-  if (!signal) return <main className="grid min-h-screen place-items-center bg-[#070a0f] text-slate-300"><div className="text-center"><p>没有找到该预警</p><a href="/" className="mt-4 inline-block text-cyan-300">返回监控面板</a></div></main>;
+  const db = env.DB;
+  if (!db) throw new Error("DB binding 未配置");
+  const signal = await db.prepare("SELECT * FROM signals WHERE id = ?").bind(Number(id)).first<Record<string, unknown>>();
+  if (!signal) return <main className="grid min-h-screen place-items-center bg-[#070a0f] text-slate-300"><div className="text-center"><p>没有找到该预警</p><Link href="/" className="mt-4 inline-block text-cyan-300">返回监控面板</Link></div></main>;
   const chain = String(signal.chain);
   const address = String(signal.token_address);
   const [posts, snapshots, market, kline5, kline15] = await Promise.all([
-    env.DB.prepare("SELECT * FROM hot_posts WHERE signal_id = ? ORDER BY rank").bind(Number(id)).all<Record<string, unknown>>(),
-    env.DB.prepare("SELECT holder_count, total_token_amount, market_value, captured_at FROM snapshots WHERE chain = ? AND token_address = ? ORDER BY captured_at LIMIT 120").bind(chain, address).all<Record<string, unknown>>(),
+    db.prepare("SELECT * FROM hot_posts WHERE signal_id = ? ORDER BY rank").bind(Number(id)).all<Record<string, unknown>>(),
+    db.prepare("SELECT holder_count, total_token_amount, market_value, captured_at FROM snapshots WHERE chain = ? AND token_address = ? ORDER BY captured_at LIMIT 120").bind(chain, address).all<Record<string, unknown>>(),
     getMarketData(chain, address).catch(() => ({ name:"",symbol:"",logo:"",description:"",price:0,marketCap:0,liquidity:0,holders:0,volume24h:0,pairAddress:"",dexUrl:"",createdAt:0 })),
     getKlineData(chain, address, 5).catch(() => ({ candles: [], source: "", reason: "5分钟行情数据源请求失败，请稍后刷新重试。" })),
     getKlineData(chain, address, 15).catch(() => ({ candles: [], source: "", reason: "15分钟行情数据源请求失败，请稍后刷新重试。" })),
@@ -38,8 +42,8 @@ export default async function SignalDetail({ params }: { params: Promise<{ id: s
   const holders = market.holders || Number(signal.holders);
   const volume24h = market.volume24h || Number(signal.volume_24h);
   const description = market.description || "暂无可核验的官方项目简介。";
-  return <main className="min-h-screen overflow-x-hidden bg-[#070a0f] text-[#edf2f7]"><div className="ambient"/><div className="relative mx-auto max-w-6xl px-4 py-7 sm:px-7"><a href="/" className="mb-6 inline-flex items-center gap-2 text-sm text-slate-500 transition hover:text-cyan-300"><ArrowLeft size={16}/>返回预警列表</a>
-    <section className="min-w-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0b1018]/95 p-5 sm:p-7"><div className="flex min-w-0 flex-col justify-between gap-5 sm:flex-row sm:items-start"><div className="flex min-w-0 items-center gap-3">{validImage(logo) ? <img src={logo} alt={`${symbol} 头像`} className="h-12 w-12 shrink-0 rounded-xl border border-white/[0.08] bg-white/[0.04] object-cover"/> : <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl border border-cyan-300/15 bg-cyan-300/[0.08] font-semibold text-cyan-200">{symbol.slice(0,2)}</div>}<div className="min-w-0"><h1 className="truncate text-2xl font-semibold">{symbol}</h1>{name && name.toLowerCase() !== symbol.toLowerCase() && <p className="mt-0.5 truncate text-sm text-slate-500">{name}</p>}<div className="mt-1 flex min-w-0 items-center gap-2"><p className="min-w-0 truncate font-mono text-xs text-slate-600">{address}</p><CopyAddress address={address}/></div></div></div><div className="rounded-xl border border-cyan-300/15 bg-cyan-300/[0.07] px-4 py-3"><div className="text-xs text-cyan-300/70">当前聚集</div><div className="mt-1 text-xl font-semibold text-cyan-200">{Number(signal.holder_count)} 人</div></div></div>
+  return <main className="min-h-screen overflow-x-hidden bg-[#070a0f] text-[#edf2f7]"><div className="ambient"/><div className="relative mx-auto max-w-6xl px-4 py-7 sm:px-7"><Link href="/" className="mb-6 inline-flex items-center gap-2 text-sm text-slate-500 transition hover:text-cyan-300"><ArrowLeft size={16}/>返回预警列表</Link>
+    <section className="min-w-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0b1018]/95 p-5 sm:p-7"><div className="flex min-w-0 flex-col justify-between gap-5 sm:flex-row sm:items-start"><div className="flex min-w-0 items-center gap-3">{validImage(logo) ? <Image unoptimized src={logo} alt={`${symbol} 头像`} width={48} height={48} className="h-12 w-12 shrink-0 rounded-xl border border-white/[0.08] bg-white/[0.04] object-cover"/> : <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl border border-cyan-300/15 bg-cyan-300/[0.08] font-semibold text-cyan-200">{symbol.slice(0,2)}</div>}<div className="min-w-0"><h1 className="truncate text-2xl font-semibold">{symbol}</h1>{name && name.toLowerCase() !== symbol.toLowerCase() && <p className="mt-0.5 truncate text-sm text-slate-500">{name}</p>}<div className="mt-1 flex min-w-0 items-center gap-2"><p className="min-w-0 truncate font-mono text-xs text-slate-600">{address}</p><CopyAddress address={address}/></div></div></div><div className="rounded-xl border border-cyan-300/15 bg-cyan-300/[0.07] px-4 py-3"><div className="text-xs text-cyan-300/70">当前聚集</div><div className="mt-1 text-xl font-semibold text-cyan-200">{Number(signal.holder_count)} 人</div></div></div>
       <div className="mt-7 grid grid-cols-2 gap-3 sm:grid-cols-4"><Box label="市值" value={money(marketCap)}/><Box label="流动性" value={money(liquidity)}/><Box label="持币地址" value={holders ? holders.toLocaleString() : "暂无数据"}/><Box label="24H交易额" value={money(volume24h)}/></div>
       <div className="mt-7 grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]"><div className="min-w-0 overflow-hidden rounded-xl border border-white/[0.07] bg-white/[0.025] p-5"><div className="text-sm font-medium text-slate-300">代币简介</div><p className="mt-2 break-words text-sm leading-6 text-slate-400 [overflow-wrap:anywhere]">{description}</p>{market.dexUrl && <a href={market.dexUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 text-xs text-cyan-300/80 hover:text-cyan-200">查看DEX行情 <ExternalLink size={12}/></a>}</div><div className="min-w-0 overflow-hidden rounded-xl border border-cyan-300/10 bg-gradient-to-r from-cyan-300/[0.07] to-violet-400/[0.05] p-5"><div className="flex items-center gap-2 text-sm text-cyan-300"><Sparkles size={16}/>AI分析</div><p className="mt-2 break-words leading-7 text-slate-200 [overflow-wrap:anywhere]">{String(signal.ai_analysis)}</p><p className="mt-3 break-words text-xs leading-5 text-slate-500 [overflow-wrap:anywhere]">数据主题：{String(signal.gmgn_theme)}</p></div></div>
     </section>

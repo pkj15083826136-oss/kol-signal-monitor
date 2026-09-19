@@ -1,4 +1,5 @@
 const chains = ["sol", "bsc", "base", "robinhood"];
+if (!process.env.MONITOR_SECRET) throw new Error("MONITOR_SECRET is required");
 const requestedChain = process.env.MONITOR_CHAIN;
 const chain = chains.includes(requestedChain) ? requestedChain : chains[Math.floor(Date.now() / 60000) % chains.length];
 
@@ -23,7 +24,7 @@ await new Promise((resolve) => setTimeout(resolve, 2000));
 const smartmoney = await gmgn("smartmoney");
 const response = await fetch(`${process.env.SITE_URL.replace(/\/$/, "")}/api/monitor/run?chain=${chain}`, {
   method: "POST",
-  headers: { Authorization: `Bearer ${process.env.GMGN_API_KEY}`, "Content-Type": "application/json" },
+  headers: { Authorization: `Bearer ${process.env.MONITOR_SECRET}`, "Content-Type": "application/json" },
   body: JSON.stringify({ feeds: { kol, smartmoney } }),
   signal: AbortSignal.timeout(70000),
 });

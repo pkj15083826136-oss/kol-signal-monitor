@@ -5,12 +5,15 @@ import { sendWeComAlert } from "@/lib/wecom";
 import { watchedByAddress } from "@/lib/wallets";
 import { getMarketData } from "@/lib/market";
 import { rejectFirstSignal } from "@/lib/signal-policy";
+import { isMonitorAuthorized } from "@/lib/monitor-auth";
+import { ALERT_THRESHOLDS, dueAlertThreshold, normalizeAddress } from "@/lib/monitor-policy";
+import { d1Bindings, d1Integer, d1Json, d1Number, d1Text, SIGNAL_MARKET_UPDATE_SQL, signalMarketUpdateBindings } from "@/lib/d1-values";
+import { deliverReadyAlerts, type AlertStore } from "@/lib/alert-delivery";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const CHAINS = ["sol", "bsc", "base", "robinhood"] as const;
-const THRESHOLDS = [6, 18, 38, 58] as const;
 const CHAIN_LABEL: Record<string, string> = { sol: "Solana", bsc: "BSC", base: "Base", robinhood: "Robinhood" };
 const IGNORED_TOKENS: Record<string, Set<string>> = {
   sol: new Set([
@@ -49,10 +52,46 @@ function secret() {
 }
 
 function authorized(request: Request) {
-  const expected = secret();
-  const gmgnKey = String((env as unknown as Record<string, unknown>).GMGN_API_KEY || "");
-  const authorization = request.headers.get("authorization");
-  return Boolean((expected && authorization === `Bearer ${expected}`) || (gmgnKey && authorization === `Bearer ${gmgnKey}`));
+  return isMonitorAuthorized(request, secret());
+}
+
+function write(db: D1Database, sql: string, name: string, fields: Record<string, string | number | null>) {
+  return db.prepare(sql).bind(...d1Bindings(name, fields));
+}
+
+async function deliverAlerts(db: D1Database) {
+  const store: AlertStore = {
+    async listReady(now) {
+      const rows = await db.prepare(`SELECT id, alert_payload_json, alert_attempts FROM signals
+        WHERE alert_status IN ('pending','retry') AND (alert_next_attempt_at IS NULL OR alert_next_attempt_at <= ?)
+        ORDER BY id LIMIT 10`).bind(now).all<{ id: number; alert_payload_json: string; alert_attempts: number }>();
+      return rows.results.flatMap((row) => {
+        try { return [{ id: row.id, payload: JSON.parse(row.alert_payload_json) as Record<string, unknown>, attempts: row.alert_attempts }]; }
+        catch { return [{ id: row.id, payload: { __invalidAlertPayload: true }, attempts: row.alert_attempts }]; }
+      });
+    },
+    async claim(id, now) {
+      const result = await write(db, `UPDATE signals SET alert_status = 'sending', alert_attempts = alert_attempts + 1,
+        alert_last_attempt_at = ?, alert_error = NULL WHERE id = ? AND alert_status IN ('pending','retry')`, "alerts.claim", {
+        alert_last_attempt_at: d1Text(now), id: d1Integer(id),
+      }).run();
+      return result.meta.changes === 1;
+    },
+    async markSent(id, now) {
+      await write(db, "UPDATE signals SET alert_status = 'sent', alert_sent_at = ?, alert_next_attempt_at = NULL, alert_error = NULL WHERE id = ? AND alert_status = 'sending'", "alerts.sent", {
+        alert_sent_at: d1Text(now), id: d1Integer(id),
+      }).run();
+    },
+    async markFailed(id, error, status, nextAttemptAt) {
+      await write(db, "UPDATE signals SET alert_status = ?, alert_error = ?, alert_next_attempt_at = ? WHERE id = ? AND alert_status = 'sending'", "alerts.failed", {
+        alert_status: d1Text(status), alert_error: d1Text(error), alert_next_attempt_at: nextAttemptAt, id: d1Integer(id),
+      }).run();
+    },
+  };
+  return deliverReadyAlerts(store, async (payload) => {
+    if (payload.__invalidAlertPayload) throw new Error("alert_payload_json 无法解析");
+    await sendWeComAlert(payload);
+  });
 }
 
 function nested(record: Record<string, unknown>, key: string) {
@@ -63,13 +102,13 @@ function parseTrade(chain: string, row: Record<string, unknown>, source: "kol" |
   const makerInfo = nested(row, "maker_info");
   const tokenInfo = asRecord(row.token ?? row.token_info ?? row.base_token);
   const wallet = firstString(row, ["maker", "wallet_address", "address", "owner"]) || firstString(makerInfo, ["address", "wallet_address"]);
-  const watched = watchedByAddress.get(`${CHAIN_LABEL[chain].toLowerCase()}:${wallet.toLowerCase()}`);
+  const watched = watchedByAddress.get(`${CHAIN_LABEL[chain].toLowerCase()}:${normalizeAddress(chain, wallet)}`);
   // The fixed GMGN + Ave list remains the core pool. GMGN's KOL feed is also
   // accepted dynamically so the monitor follows the live KOL badges shown on
   // each token page instead of silently dropping newly-labelled KOL wallets.
   if (!watched && source !== "kol") return null;
   const token = firstString(row, ["token_address", "base_address", "base_token_address", "contract_address", "mint", "address"]) || firstString(tokenInfo, ["address", "token_address", "contract_address", "mint"]);
-  if (!token || token.toLowerCase() === wallet.toLowerCase()) return null;
+  if (!token || normalizeAddress(chain, token) === normalizeAddress(chain, wallet)) return null;
   if (IGNORED_TOKENS[chain]?.has(token.toLowerCase())) return null;
   const rawSide = firstString(row, ["side", "event_type", "type", "action"]).toLowerCase();
   const side = rawSide.includes("buy") ? "buy" : rawSide.includes("sell") ? "sell" : null;
@@ -82,9 +121,9 @@ function parseTrade(chain: string, row: Record<string, unknown>, source: "kol" |
   return {
     id: hash ? `${hash}:${token}:${side}` : `${chain}:${wallet}:${token}:${side}:${unix || firstString(row, ["id"])}`,
     chain,
-    wallet,
+    wallet: normalizeAddress(chain, wallet),
     walletName: watched?.name || firstString(makerInfo, ["twitter_name", "twitter_username"]) || "GMGN动态KOL",
-    token,
+    token: normalizeAddress(chain, token),
     side,
     usd,
     amount,
@@ -122,6 +161,7 @@ type SuppliedFeeds = { kol?: unknown; smartmoney?: unknown };
 
 async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: SuppliedFeeds) {
   const db = env.DB;
+  if (!db) throw new Error("DB binding 未配置");
   const startedAt = new Date().toISOString();
   let newTrades = 0;
   let newSignals = 0;
@@ -130,6 +170,7 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
   let feedErrors: string[] = [];
   const touched = new Map<string, { chain: string; token: string }>();
   try {
+    const alertDeliveryBefore = await deliverAlerts(db);
     const feeds: Array<{ chain: string; kind: "kol" | "smartmoney"; data: unknown; error: string }> = [];
     if (supplied) {
       feeds.push({ chain: selectedChain, kind: "kol", data: supplied.kol ?? { list: [] }, error: "" });
@@ -154,10 +195,13 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
     matchedRows = parsed.length;
 
     for (const trade of parsed) {
-      const inserted = await db.prepare(`INSERT OR IGNORE INTO trades
+      const inserted = await write(db, `INSERT OR IGNORE INTO trades
         (id, chain, wallet_address, wallet_name, token_address, side, amount_usd, token_amount, traded_at, raw_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .bind(trade.id, trade.chain, trade.wallet, trade.walletName, trade.token, trade.side, Math.round(trade.usd), String(trade.amount), trade.at, JSON.stringify(trade.raw)).run();
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, "trades.insert", {
+          id: d1Text(trade.id), chain: d1Text(trade.chain), wallet_address: d1Text(trade.wallet), wallet_name: d1Text(trade.walletName),
+          token_address: d1Text(trade.token), side: d1Text(trade.side), amount_usd: d1Integer(trade.usd), token_amount: d1Text(trade.amount),
+          traded_at: d1Text(trade.at), raw_json: d1Json(trade.raw),
+        }).run();
       if (!inserted.meta.changes) continue;
       newTrades += 1;
       const existing = await db.prepare("SELECT balance, buy_usd, first_buy_at FROM token_wallets WHERE chain = ? AND token_address = ? AND wallet_address = ?")
@@ -165,11 +209,15 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
       const signedAmount = trade.side === "buy" ? trade.amount : -trade.amount;
       const balance = Math.max(0, Number(existing?.balance || 0) + signedAmount);
       if (existing) {
-        await db.prepare("UPDATE token_wallets SET wallet_name = ?, last_buy_at = ?, buy_usd = ?, balance = ? WHERE chain = ? AND token_address = ? AND wallet_address = ?")
-          .bind(trade.walletName, trade.at, Number(existing.buy_usd || 0) + (trade.side === "buy" ? Math.round(trade.usd) : 0), balance, trade.chain, trade.token, trade.wallet).run();
+        await write(db, "UPDATE token_wallets SET wallet_name = ?, last_buy_at = ?, buy_usd = ?, balance = ? WHERE chain = ? AND token_address = ? AND wallet_address = ?", "token_wallets.update", {
+          wallet_name: d1Text(trade.walletName), last_buy_at: d1Text(trade.at), buy_usd: d1Integer(Number(existing.buy_usd || 0) + (trade.side === "buy" ? trade.usd : 0)),
+          balance: d1Number(balance), chain: d1Text(trade.chain), token_address: d1Text(trade.token), wallet_address: d1Text(trade.wallet),
+        }).run();
       } else if (trade.side === "buy") {
-        await db.prepare("INSERT INTO token_wallets (chain, token_address, wallet_address, wallet_name, first_buy_at, last_buy_at, buy_usd, balance) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-          .bind(trade.chain, trade.token, trade.wallet, trade.walletName, trade.at, trade.at, Math.round(trade.usd), balance).run();
+        await write(db, "INSERT INTO token_wallets (chain, token_address, wallet_address, wallet_name, first_buy_at, last_buy_at, buy_usd, balance) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", "token_wallets.insert", {
+          chain: d1Text(trade.chain), token_address: d1Text(trade.token), wallet_address: d1Text(trade.wallet), wallet_name: d1Text(trade.walletName),
+          first_buy_at: d1Text(trade.at), last_buy_at: d1Text(trade.at), buy_usd: d1Integer(trade.usd), balance: d1Number(balance),
+        }).run();
       }
       touched.set(`${trade.chain}:${trade.token}`, { chain: trade.chain, token: trade.token });
     }
@@ -182,7 +230,7 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
       WHERE chain = ? AND balance > 0.000001 AND datetime(last_buy_at) >= datetime('now', '-6 hours')
       GROUP BY chain, token_address
       HAVING COUNT(*) >= ?`)
-      .bind(selectedChain, THRESHOLDS[0]).all<{ chain: string; token_address: string }>();
+      .bind(selectedChain, ALERT_THRESHOLDS[0]).all<{ chain: string; token_address: string }>();
     for (const row of qualifying.results) {
       touched.set(`${row.chain}:${row.token_address}`, { chain: row.chain, token: row.token_address });
     }
@@ -199,9 +247,10 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
       const aggregate = await db.prepare("SELECT COUNT(*) holder_count, COALESCE(SUM(buy_usd),0) total_buy_usd, COALESCE(SUM(balance),0) total_token_amount FROM token_wallets WHERE chain = ? AND token_address = ? AND balance > 0.000001")
         .bind(chain, token).first<{ holder_count: number; total_buy_usd: number; total_token_amount: number }>();
       const holderCount = Number(aggregate?.holder_count || 0);
-      const due = [...THRESHOLDS].reverse().find((threshold) => holderCount >= threshold);
+      const alertedRows = await db.prepare("SELECT threshold FROM signals WHERE chain = ? AND token_address = ?").bind(chain, token).all<{ threshold: number }>();
+      const due = dueAlertThreshold(holderCount, alertedRows.results.map((row) => Number(row.threshold)));
       const previousSignal = await db.prepare("SELECT id, price FROM signals WHERE chain = ? AND token_address = ? ORDER BY alerted_at DESC LIMIT 1").bind(chain, token).first<{ id: number; price: string }>();
-      if (!previousSignal && holderCount < THRESHOLDS[0]) continue;
+      if (!previousSignal && holderCount < ALERT_THRESHOLDS[0]) continue;
       // Ave CU is used once for a token's first signal; routine snapshots use
       // public market feeds so continuous monitoring does not burn the quota.
       const liveMarket = await getMarketData(chain, token, { useAve: !previousSignal }).catch(() => null);
@@ -211,28 +260,14 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
         createdAt: Number(liveMarket?.createdAt || 0),
       })) continue;
       const price = liveMarket?.price || Number(previousSignal?.price || 0);
-      await db.prepare("INSERT INTO snapshots (chain, token_address, holder_count, total_buy_usd, total_token_amount, market_value, captured_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-        .bind(chain, token, holderCount, Math.round(Number(aggregate?.total_buy_usd || 0)), Number(aggregate?.total_token_amount || 0), Number(aggregate?.total_token_amount || 0) * price, new Date().toISOString()).run();
+      await write(db, "INSERT INTO snapshots (chain, token_address, holder_count, total_buy_usd, total_token_amount, market_value, captured_at) VALUES (?, ?, ?, ?, ?, ?, ?)", "snapshots.insert", {
+        chain: d1Text(chain), token_address: d1Text(token), holder_count: d1Integer(holderCount), total_buy_usd: d1Integer(aggregate?.total_buy_usd),
+        total_token_amount: d1Number(aggregate?.total_token_amount), market_value: d1Number(Number(aggregate?.total_token_amount || 0) * price), captured_at: new Date().toISOString(),
+      }).run();
       if (previousSignal && liveMarket) {
-        await db.prepare(`UPDATE signals SET
-          name = CASE WHEN ? != '' THEN ? ELSE name END,
-          symbol = CASE WHEN ? != '' THEN ? ELSE symbol END,
-          logo = CASE WHEN ? != '' THEN ? ELSE logo END,
-          market_cap = CASE WHEN ? > 0 THEN ? ELSE market_cap END,
-          liquidity = CASE WHEN ? > 0 THEN ? ELSE liquidity END,
-          holders = CASE WHEN ? > 0 THEN ? ELSE holders END,
-          volume_24h = CASE WHEN ? > 0 THEN ? ELSE volume_24h END,
-          price = CASE WHEN ? > 0 THEN ? ELSE price END,
-          gmgn_theme = CASE WHEN ? != '' THEN ? ELSE gmgn_theme END
-          WHERE chain = ? AND token_address = ?`)
-          .bind(liveMarket.name, liveMarket.name, liveMarket.symbol, liveMarket.symbol, liveMarket.logo, liveMarket.logo,
-            liveMarket.marketCap, Math.round(liveMarket.marketCap), liveMarket.liquidity, Math.round(liveMarket.liquidity),
-            liveMarket.holders, Math.round(liveMarket.holders), liveMarket.volume24h, Math.round(liveMarket.volume24h),
-            liveMarket.price, String(liveMarket.price), liveMarket.description, liveMarket.description, chain, token).run();
+        await db.prepare(SIGNAL_MARKET_UPDATE_SQL).bind(...signalMarketUpdateBindings(liveMarket, chain, token)).run();
       }
       if (!due) continue;
-      const exists = await db.prepare("SELECT 1 FROM signals WHERE chain = ? AND token_address = ? AND threshold = ?").bind(chain, token, due).first();
-      if (exists) continue;
       // Narrative search is the slowest part of a signal. Generate at most one
       // new alert per pass; remaining qualifying tokens are picked up by the
       // reconciliation query on the next pass instead of stalling ingestion.
@@ -261,32 +296,52 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
       if (!gmgnTheme) gmgnTheme = launchpad ? `由 ${launchpad} 发行；暂无可核验的官方项目简介。` : "暂无可核验的官方项目简介。";
       const walletRows = await db.prepare("SELECT wallet_name FROM token_wallets WHERE chain = ? AND token_address = ? AND balance > 0.000001 ORDER BY first_buy_at LIMIT 80").bind(chain, token).all<{ wallet_name: string }>();
       const walletNames = walletRows.results.map((row) => row.wallet_name);
-      const inserted = await db.prepare(`INSERT INTO signals
-        (chain, token_address, name, symbol, logo, threshold, holder_count, market_cap, liquidity, holders, volume_24h, price, gmgn_theme, ai_analysis, wallet_names_json, alerted_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .bind(chain, token, name, symbol, liveMarket?.logo || firstString(info, ["logo", "logo_url"]) || firstString(tradeToken, ["logo", "logo_url"]), due, holderCount, Math.round(marketCap), Math.round(liquidity), Math.round(holders), Math.round(volume24h), String(currentPrice), gmgnTheme.slice(0, 500), narrative.aiAnalysis, JSON.stringify(walletNames), new Date().toISOString()).run();
+      const alertPayload = {
+        name, symbol, chain: CHAIN_LABEL[chain], address: token, holderCount,
+        marketCap: formatMoney(marketCap), liquidity: formatMoney(liquidity), holders, volume24h: formatMoney(volume24h),
+        gmgnTheme, aiAnalysis: narrative.aiAnalysis, walletNames, detailUrl: "",
+      };
+      const inserted = await write(db, `INSERT INTO signals
+        (chain, token_address, name, symbol, logo, threshold, holder_count, market_cap, liquidity, holders, volume_24h, price, gmgn_theme, ai_analysis, wallet_names_json, alerted_at, alert_status, alert_attempts, alert_payload_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?)`, "signals.insert", {
+        chain: d1Text(chain), token_address: d1Text(token), name: d1Text(name, "Unknown"), symbol: d1Text(symbol, "—"),
+        logo: d1Text(liveMarket?.logo || firstString(info, ["logo", "logo_url"]) || firstString(tradeToken, ["logo", "logo_url"])),
+        threshold: d1Integer(due), holder_count: d1Integer(holderCount), market_cap: d1Integer(marketCap), liquidity: d1Integer(liquidity),
+        holders: d1Integer(holders), volume_24h: d1Integer(volume24h), price: d1Text(currentPrice, "0"), gmgn_theme: d1Text(gmgnTheme.slice(0, 500)),
+        ai_analysis: d1Text(narrative.aiAnalysis), wallet_names_json: d1Json(walletNames, []), alerted_at: new Date().toISOString(), alert_payload_json: d1Json(alertPayload),
+      }).run();
       const signalId = Number(inserted.meta.last_row_id);
       if (due === 6 || due === 38) {
         for (const post of narrative.posts) {
-          await db.prepare("INSERT INTO hot_posts (signal_id, rank, author, posted_at, url, original, chinese, engagement) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-            .bind(signalId, post.rank, post.author, post.postedAt, post.url, post.original, post.chinese, post.engagement || "").run();
+          await write(db, "INSERT INTO hot_posts (signal_id, rank, author, posted_at, url, original, chinese, engagement) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", "hot_posts.insert", {
+            signal_id: d1Integer(signalId), rank: d1Integer(post.rank), author: d1Text(post.author), posted_at: d1Text(post.postedAt),
+            url: d1Text(post.url), original: d1Text(post.original), chinese: d1Text(post.chinese), engagement: d1Text(post.engagement),
+          }).run();
         }
       }
       const publicUrl = String((env as unknown as Record<string, unknown>).PUBLIC_SITE_URL || "").replace(/\/$/, "");
-      await sendWeComAlert({
-        name, symbol, chain: CHAIN_LABEL[chain], address: token, holderCount,
-        marketCap: formatMoney(marketCap), liquidity: formatMoney(liquidity), holders, volume24h: formatMoney(volume24h),
-        gmgnTheme, aiAnalysis: narrative.aiAnalysis, walletNames, detailUrl: publicUrl ? `${publicUrl}/signal/${signalId}` : "",
-      }).catch(() => undefined);
+      alertPayload.detailUrl = publicUrl ? `${publicUrl}/signal/${signalId}` : "";
+      await write(db, "UPDATE signals SET alert_payload_json = ? WHERE id = ?", "signals.alert_payload", {
+        alert_payload_json: d1Json(alertPayload), id: d1Integer(signalId),
+      }).run();
       newSignals += 1;
     }
+    const alertDeliveryAfter = await deliverAlerts(db);
     const finishedAt = new Date().toISOString();
-    await db.prepare("INSERT INTO monitor_runs (status, new_trades, new_signals, started_at, finished_at) VALUES ('success', ?, ?, ?, ?)").bind(newTrades, newSignals, startedAt, finishedAt).run();
-    return { ok: true, selectedChain, fetchedRows, matchedRows, newTrades, newSignals, feedErrors, startedAt, finishedAt };
+    await write(db, "INSERT INTO monitor_runs (status, new_trades, new_signals, started_at, finished_at) VALUES ('success', ?, ?, ?, ?)", "monitor_runs.success", {
+      new_trades: d1Integer(newTrades), new_signals: d1Integer(newSignals), started_at: d1Text(startedAt), finished_at: d1Text(finishedAt),
+    }).run();
+    return { ok: true, selectedChain, fetchedRows, matchedRows, newTrades, newSignals, feedErrors, alertDeliveryBefore, alertDeliveryAfter, startedAt, finishedAt };
   } catch (error) {
     const finishedAt = new Date().toISOString();
     const message = error instanceof Error ? error.message : "未知错误";
-    await db.prepare("INSERT INTO monitor_runs (status, new_trades, new_signals, error, started_at, finished_at) VALUES ('failed', ?, ?, ?, ?, ?)").bind(newTrades, newSignals, message, startedAt, finishedAt).run().catch(() => undefined);
+    try {
+      await write(db, "INSERT INTO monitor_runs (status, new_trades, new_signals, error, started_at, finished_at) VALUES ('failed', ?, ?, ?, ?, ?)", "monitor_runs.failed", {
+        new_trades: d1Integer(newTrades), new_signals: d1Integer(newSignals), error: d1Text(message), started_at: d1Text(startedAt), finished_at: d1Text(finishedAt),
+      }).run();
+    } catch (recordError) {
+      throw new AggregateError([error, recordError], `监控失败且无法写入 monitor_runs：${message}`);
+    }
     throw error;
   }
 }
@@ -310,5 +365,6 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
-  return POST(request);
+  void request;
+  return Response.json({ error: "Method Not Allowed" }, { status: 405, headers: { Allow: "POST" } });
 }

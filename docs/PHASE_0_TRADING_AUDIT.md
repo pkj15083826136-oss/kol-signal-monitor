@@ -2,7 +2,7 @@
 
 审计日期：2026-09-19（Asia/Shanghai）  
 审计基线：生产 Sites 版本 21，Git 提交 `3d725585752f0173357016d836014ea898e39a1d`  
-工作分支：`codex/trading-phase-0`
+工作分支：`codex/trading-phase-0`；修复分支：`codex/phase-0-1-remediation`
 
 ## 1. 结论
 
@@ -155,13 +155,13 @@
 - [x] 未创建 Site/数据库/表，未读取或提交 secret，未发布。
 - [x] 生产 commit 已记录，可作为后续 diff 基线。
 - [x] 构建通过；首页、列表 API、详情页生产只读检查通过。
-- [ ] lint 全绿（当前 2 errors / 2 warnings）。
-- [ ] 自动化测试存在并通过（当前不存在）。
-- [ ] 四链 monitor 最近连续窗口无失败（当前 Solana/BSC 有 D1 失败）。
-- [ ] `MONITOR_SECRET` 成为 monitor API 唯一鉴权凭证。
-- [ ] signal policy、列表 API、详情页、monitor 主流程回归测试补齐。
+- [x] lint 全绿（0 error / 0 warning）。
+- [x] `pnpm test` 已建立并通过（6 个文件、13 项测试）。
+- [ ] 四链 monitor 最近连续窗口无失败：D1 根因已用回归测试复现并修复；按“不经确认不发布”要求，生产连续窗口留待获批部署后验证。
+- [x] `MONITOR_SECRET` 成为 monitor API 唯一鉴权凭证，调度脚本也不再使用 GMGN key 调站点写接口。
+- [x] signal policy、独立钱包去重、四阶段幂等、D1 边界、通知重试和 monitor 鉴权回归测试已补齐；页面相关 lint/build 回归通过。
 
-因此 Phase 0 的审计/设计产物完成，但**Phase 1 暂不准入**；上面 5 个未勾选项必须先关闭。
+Phase 0.1 的本地代码门禁已关闭，详情见 `docs/PHASE_0_1_REMEDIATION.md`。在项目所有者确认迁移和发布前，**Phase 1 仍不准入**；发布后还必须完成四链连续运行窗口验收。
 
 ### 后续阶段统一回归门槛
 
@@ -188,4 +188,3 @@
 - [ ] 仅开启该链的 mainnet flag；其他链保持关闭。
 - [ ] 第一笔小额交易由所有者在钱包中人工核对 token、amount、recipient、minimum received、fee 后确认。
 - [ ] receipt、数据库记录、浏览器链接和监控日志一致；失败可恢复且不会自动重试下单。
-

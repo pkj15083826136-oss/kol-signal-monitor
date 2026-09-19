@@ -45,6 +45,13 @@ export const signals = sqliteTable("signals", {
   aiAnalysis: text("ai_analysis").notNull().default("等待有效社媒讨论"),
   walletNamesJson: text("wallet_names_json").notNull().default("[]"),
   alertedAt: text("alerted_at").notNull(),
+  alertStatus: text("alert_status").notNull().default("sent"),
+  alertAttempts: integer("alert_attempts").notNull().default(0),
+  alertError: text("alert_error"),
+  alertLastAttemptAt: text("alert_last_attempt_at"),
+  alertNextAttemptAt: text("alert_next_attempt_at"),
+  alertSentAt: text("alert_sent_at"),
+  alertPayloadJson: text("alert_payload_json").notNull().default(""),
 }, (table) => [
   uniqueIndex("uidx_signals_token_threshold").on(table.chain, table.tokenAddress, table.threshold),
   index("idx_signals_alerted_at").on(table.alertedAt),

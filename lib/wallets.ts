@@ -1,4 +1,5 @@
 import walletData from "@/data/wallets.json";
+import { normalizeAddress } from "@/lib/monitor-policy";
 
 export type WatchedWallet = {
   key: string;
@@ -14,7 +15,7 @@ export type WatchedWallet = {
 export const watchedWallets = walletData as WatchedWallet[];
 export const watchedByAddress = new Map(
   watchedWallets.flatMap((wallet) =>
-    wallet.chains.map((chain) => [`${chain.toLowerCase()}:${wallet.address.toLowerCase()}`, wallet] as const),
+    wallet.chains.map((chain) => [`${chain.toLowerCase()}:${normalizeAddress(chain, wallet.address)}`, wallet] as const),
   ),
 );
 

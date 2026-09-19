@@ -114,18 +114,18 @@ export async function getMarketData(chain: string, address: string, options: { u
   const [dex, gmgn, ave] = await Promise.all([
     getDexMarket(chain, address).catch(() => emptyMarket),
     getGmgnPublicMarket(chain, address),
-    useAve ? getAveMarket(chain, address) : Promise.resolve({}),
+    useAve ? getAveMarket(chain, address) : Promise.resolve<Partial<MarketData>>({}),
   ]);
   const createdTimes = [dex.createdAt, gmgn.createdAt, ave.createdAt].filter((value): value is number => Boolean(value));
   return {
     // Token identity follows the contract's primary market metadata. Ave is a
     // fallback here because its token index can occasionally attach an alias
     // from a different project to the same contract (as seen with BONK).
-    name: gmgn.name || dex.name || ave.name, symbol: gmgn.symbol || dex.symbol || ave.symbol, logo: gmgn.logo || ave.logo || dex.logo,
-    description: gmgn.description || ave.description || "", price: ave.price || gmgn.price || dex.price,
-    marketCap: ave.marketCap || gmgn.marketCap || dex.marketCap, liquidity: ave.liquidity || gmgn.liquidity || dex.liquidity,
-    holders: ave.holders || gmgn.holders || 0, volume24h: ave.volume24h || gmgn.volume24h || dex.volume24h,
-    pairAddress: dex.pairAddress, dexUrl: dex.dexUrl, createdAt: createdTimes.length ? Math.min(...createdTimes) : 0,
+    name: string(gmgn.name || dex.name || ave.name), symbol: string(gmgn.symbol || dex.symbol || ave.symbol), logo: string(gmgn.logo || ave.logo || dex.logo),
+    description: string(gmgn.description || ave.description), price: number(ave.price || gmgn.price || dex.price),
+    marketCap: number(ave.marketCap || gmgn.marketCap || dex.marketCap), liquidity: number(ave.liquidity || gmgn.liquidity || dex.liquidity),
+    holders: number(ave.holders || gmgn.holders), volume24h: number(ave.volume24h || gmgn.volume24h || dex.volume24h),
+    pairAddress: string(dex.pairAddress), dexUrl: string(dex.dexUrl), createdAt: createdTimes.length ? Math.min(...createdTimes) : 0,
   };
 }
 

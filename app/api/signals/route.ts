@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { getMarketData } from "@/lib/market";
 import { verifiedTokenIdentity } from "@/lib/token-identity";
 import { isMatureBaseAsset } from "@/lib/signal-policy";
+import { d1Bindings, d1Integer, d1Text } from "@/lib/d1-values";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,9 @@ function mapSignal(row: Row) {
 }
 
 export async function GET() {
-  const rows = await env.DB.prepare(`SELECT id, chain, token_address, name, symbol, logo, threshold, holder_count, market_cap,
+  const db = env.DB;
+  if (!db) return Response.json({ error: "DB binding 未配置" }, { status: 500 });
+  const rows = await db.prepare(`SELECT id, chain, token_address, name, symbol, logo, threshold, holder_count, market_cap,
     liquidity, holders, volume_24h, gmgn_theme, ai_analysis, wallet_names_json, alerted_at
     FROM signals ORDER BY alerted_at DESC LIMIT 80`).all<Row>();
   const now = Date.now();
@@ -38,10 +41,13 @@ export async function GET() {
       holders: market.holders || Number(row.holders), volume24h: market.volume24h || Number(row.volume_24h),
     };
     Object.assign(row, { name: next.name, symbol: next.symbol, logo: next.logo, market_cap: next.marketCap, liquidity: next.liquidity, holders: next.holders, volume_24h: next.volume24h });
-    await env.DB.prepare("UPDATE signals SET name=?, symbol=?, logo=?, market_cap=?, liquidity=?, holders=?, volume_24h=? WHERE id=?")
-      .bind(next.name, next.symbol, next.logo, Math.round(next.marketCap), Math.round(next.liquidity), Math.round(next.holders), Math.round(next.volume24h), Number(row.id)).run();
+    await db.prepare("UPDATE signals SET name=?, symbol=?, logo=?, market_cap=?, liquidity=?, holders=?, volume_24h=? WHERE id=?")
+      .bind(...d1Bindings("signals.api_backfill", {
+        name: d1Text(next.name), symbol: d1Text(next.symbol), logo: d1Text(next.logo), market_cap: d1Integer(next.marketCap),
+        liquidity: d1Integer(next.liquidity), holders: d1Integer(next.holders), volume_24h: d1Integer(next.volume24h), id: d1Integer(row.id),
+      })).run();
   }));
-  const run = await env.DB.prepare("SELECT status, finished_at FROM monitor_runs ORDER BY id DESC LIMIT 1").first<{ status: string; finished_at: string }>();
+  const run = await db.prepare("SELECT status, finished_at FROM monitor_runs ORDER BY id DESC LIMIT 1").first<{ status: string; finished_at: string }>();
   return Response.json({ signals: rows.results.map(mapSignal).filter((signal) => !isMatureBaseAsset(signal.symbol)), lastRun: run?.finished_at ?? null, monitorOk: run?.status === "success" }, {
     headers: { "Cache-Control": "no-store, max-age=0" },
   });

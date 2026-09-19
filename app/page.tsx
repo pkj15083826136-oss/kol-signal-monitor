@@ -13,10 +13,12 @@ const demoSignals: SignalRow[] = [
 
 async function loadSignals(): Promise<{ signals: SignalRow[]; lastRun: string | null; monitorOk: boolean }> {
   try {
-    const rows = await env.DB.prepare(`SELECT id, chain, token_address, name, symbol, logo, threshold, holder_count, market_cap,
+    const db = env.DB;
+    if (!db) throw new Error("DB binding 未配置");
+    const rows = await db.prepare(`SELECT id, chain, token_address, name, symbol, logo, threshold, holder_count, market_cap,
       liquidity, holders, volume_24h, gmgn_theme, ai_analysis, wallet_names_json, alerted_at
       FROM signals ORDER BY alerted_at DESC LIMIT 60`).all<Record<string, unknown>>();
-    const run = await env.DB.prepare("SELECT status, finished_at FROM monitor_runs ORDER BY id DESC LIMIT 1").first<{ status: string; finished_at: string }>();
+    const run = await db.prepare("SELECT status, finished_at FROM monitor_runs ORDER BY id DESC LIMIT 1").first<{ status: string; finished_at: string }>();
     return {
       signals: rows.results.map((row) => {
         const identity = verifiedTokenIdentity(String(row.chain), String(row.token_address), String(row.name), String(row.symbol));
