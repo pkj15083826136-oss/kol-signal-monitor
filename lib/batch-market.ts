@@ -1,6 +1,7 @@
 import type { MarketData } from "@/lib/market";
 
 type JsonRecord = Record<string, unknown>;
+type DexPair = JsonRecord & { _requestedChain: string };
 export type BatchMarketItem = Pick<MarketData, "price" | "marketCap" | "liquidity" | "volume24h"> & { chain: string; address: string; updatedAt: string; source: string };
 const dexChain: Record<string, string> = { sol: "solana", bsc: "bsc", base: "base", robinhood: "robinhood" };
 function record(value: unknown): JsonRecord { return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {}; }
@@ -16,12 +17,12 @@ export async function getBatchMarketData(tokens: Array<{ chain: string; address:
     groups.set(token.chain, list);
   }
   const updatedAt = new Date().toISOString();
-  const batches = await Promise.all([...groups].map(async ([chain, addresses]) => {
+  const batches: DexPair[][] = await Promise.all([...groups].map(async ([chain, addresses]): Promise<DexPair[]> => {
     try {
       const response = await fetch(`https://api.dexscreener.com/tokens/v1/${dexChain[chain]}/${addresses.map(encodeURIComponent).join(",")}`, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(8000) });
       if (!response.ok) return [];
       const payload: unknown = await response.json();
-      return Array.isArray(payload) ? payload.map((item) => ({ ...record(item), _requestedChain: chain })) : [];
+      return Array.isArray(payload) ? payload.map((item): DexPair => ({ ...record(item), _requestedChain: chain })) : [];
     } catch { return []; }
   }));
   const pairs = batches.flat();

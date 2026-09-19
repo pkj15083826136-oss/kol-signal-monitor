@@ -131,4 +131,4 @@ Sites 环境应优先使用 Sites 技能提供的配置、构建、打包和发�
 
 钱包连接、动态行情、K 线升级与用户逐笔确认的手动交易范围见 `docs/TRADING_UPGRADE.md`。生产版本尚未开启交易广播，实施时必须按 Phase 0—5 分阶段并使用默认关闭的 Feature Flag。
 
-阶段记录见 `docs/PHASE_0_1_REMEDIATION.md`、`docs/PHASE_0_2_OBSERVABILITY.md`、`docs/PHASE_1_WALLET_READONLY.md` 和 `docs/PHASE_2_LIVE_MARKET.md`；待项目所有者配置的外部项集中记录在 `docs/EXTERNAL_SETUP.md`。
+阶段记录见 `docs/PHASE_0_1_REMEDIATION.md`、`docs/PHASE_0_2_OBSERVABILITY.md`、`docs/PHASE_1_WALLET_READONLY.md`、`docs/PHASE_2_LIVE_MARKET.md` 和 `docs/PHASE_3_READONLY_QUOTES.md`；待项目所有者配置的外部项集中记录在 `docs/EXTERNAL_SETUP.md`。

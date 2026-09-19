@@ -1,0 +1,11 @@
+{
+  "inputMint": "So11111111111111111111111111111111111111112",
+  "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  "inAmount": "100000000",
+  "outAmount": "14000000",
+  "otherAmountThreshold": "13860000",
+  "slippageBps": 100,
+  "priceImpactPct": "0.0042",
+  "swapUsdValue": "14.00",
+  "routePlan": [{ "swapInfo": { "label": "Meteora DLMM" } }]
+}

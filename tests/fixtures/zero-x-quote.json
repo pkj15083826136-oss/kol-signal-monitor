@@ -1,0 +1,13 @@
+{
+  "chainId": 8453,
+  "sellToken": "0x1111111111111111111111111111111111111111",
+  "buyToken": "0x2222222222222222222222222222222222222222",
+  "sellAmount": "1000000",
+  "buyAmount": "500000000000000",
+  "minBuyAmount": "495000000000000",
+  "price": "0.0000000005",
+  "estimatedPriceImpact": "0.42",
+  "issues": { "allowance": { "spender": "0x3333333333333333333333333333333333333333" }, "simulationIncomplete": false },
+  "route": { "fills": [{ "source": "Uniswap_V3" }, { "source": "0x_RFQ" }] },
+  "transaction": { "to": "0x4444444444444444444444444444444444444444", "data": "0xabcdef", "value": "0", "gas": "180000", "gasPrice": "20000000" }
+}
