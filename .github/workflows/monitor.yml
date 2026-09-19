@@ -30,10 +30,17 @@ jobs:
         run: |
           set -euo pipefail
           chains=(sol bsc base robinhood)
+          failures=0
           for attempt in $(seq 1 75); do
             chain_index=$(( (attempt - 1) % 4 ))
             if ! MONITOR_CHAIN="${chains[$chain_index]}" node scripts/collect-gmgn.mjs; then
               echo "collector failed for ${chains[$chain_index]}; continuing with the next chain"
+              failures=$((failures + 1))
             fi
             if [ "$attempt" -lt 75 ]; then sleep 48; fi
           done
+          if [ "$failures" -gt 0 ]; then
+            echo "$failures collector attempt(s) failed"
+            exit 1
+          fi
+
