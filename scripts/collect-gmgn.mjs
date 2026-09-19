@@ -1,6 +1,8 @@
 const chains = ["sol", "bsc", "base", "robinhood"];
 const requestedChain = process.env.MONITOR_CHAIN;
-const chain = chains.includes(requestedChain) ? requestedChain : chains[Math.floor(Date.now() / 60000) % chains.length];\nconst monitorSecret = process.env.MONITOR_SECRET;\nif (!monitorSecret) throw new Error("MONITOR_SECRET is not configured");
+const chain = chains.includes(requestedChain) ? requestedChain : chains[Math.floor(Date.now() / 60000) % chains.length];
+const monitorSecret = process.env.MONITOR_SECRET;
+if (!monitorSecret) throw new Error("MONITOR_SECRET is not configured");
 
 async function gmgn(kind) {
   const query = new URLSearchParams({
