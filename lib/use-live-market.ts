@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { BatchMarketItem } from "@/lib/batch-market";
-import { marketKey, mergeMarket, pollingDelay, type LiveMarketItem } from "@/lib/market-live";
+import { marketKey, mergeMarket, pollingDelay, retainLastAvailable, type LiveMarketItem } from "@/lib/market-live";
 
 export function useLiveMarket(tokens: Array<{ chain: string; address: string }>, enabled = true) {
   const stableKey = useMemo(() => tokens.slice(0, 30).map((token) => marketKey(token.chain, token.address)).join("|"), [tokens]);
@@ -22,7 +22,7 @@ export function useLiveMarket(tokens: Array<{ chain: string; address: string }>,
         const payload = await response.json() as { items: BatchMarketItem[] };
         if (!active) return;
         const next: Record<string, LiveMarketItem> = {};
-        for (const item of payload.items) { const key = marketKey(item.chain, item.address); next[key] = mergeMarket(previous.current.get(key), item); previous.current.set(key, item); }
+        for (const item of payload.items) { const key = marketKey(item.chain, item.address); const prior = previous.current.get(key); const retained = retainLastAvailable(prior, item); next[key] = mergeMarket(prior, retained); previous.current.set(key, retained); }
         setItems(next); setDegraded(payload.items.some((item) => item.source === "unavailable"));
       } catch { if (active) setDegraded(true); }
       if (active) schedule();

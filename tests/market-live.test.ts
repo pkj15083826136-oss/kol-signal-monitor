@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { direction, isMarketStale, mergeMarket, pollingDelay } from "@/lib/market-live";
+import { direction, isMarketStale, mergeMarket, pollingDelay, retainLastAvailable } from "@/lib/market-live";
 
 const item = { chain: "base", address: "0x1234567890", price: 1, marketCap: 10, liquidity: 5, volume24h: 8, updatedAt: "2026-09-19T00:00:00.000Z", source: "DexScreener" };
 
@@ -14,5 +14,8 @@ describe("live market behavior", () => {
   });
   it("marks quotes older than 30 seconds stale", () => {
     expect(isMarketStale(item.updatedAt, new Date(item.updatedAt).getTime() + 30_001)).toBe(true);
+  });
+  it("retains the last real quote when an upstream poll is temporarily unavailable", () => {
+    expect(retainLastAvailable(item, { ...item, price: 0, source: "unavailable", updatedAt: "2026-09-19T00:01:00.000Z" })).toBe(item);
   });
 });

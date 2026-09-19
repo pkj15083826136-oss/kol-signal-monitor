@@ -1,10 +1,11 @@
-import { getBatchMarketData } from "@/lib/batch-market";
+import { getBatchMarketData, type BatchMarketItem } from "@/lib/batch-market";
 import { getMarketData } from "@/lib/market";
 
 export const dynamic = "force-dynamic";
 
 type TokenInput = { chain?: unknown; address?: unknown };
 const allowedChains = new Set(["sol", "bsc", "base", "robinhood"]);
+const lastAvailable = new Map<string, BatchMarketItem>();
 
 export async function POST(request: Request) {
   let body: { tokens?: TokenInput[] };
@@ -18,10 +19,16 @@ export async function POST(request: Request) {
   });
   const primary = await getBatchMarketData(tokens);
   const items = await Promise.all(primary.map(async (item) => {
-    if (item.source !== "unavailable") return item;
+    const key = `${item.chain}:${item.address.toLowerCase()}`;
+    if (item.source !== "unavailable") { lastAvailable.set(key, item); return item; }
     const fallback = await getMarketData(item.chain, item.address).catch(() => null);
-    if (!fallback || !(fallback.price > 0 || fallback.marketCap > 0 || fallback.liquidity > 0 || fallback.volume24h > 0)) return item;
-    return { ...item, price: fallback.price, marketCap: fallback.marketCap, liquidity: fallback.liquidity, volume24h: fallback.volume24h, source: "Ave/GMGN fallback" };
+    if (!fallback || !(fallback.price > 0 || fallback.marketCap > 0 || fallback.liquidity > 0 || fallback.volume24h > 0)) {
+      const cached = lastAvailable.get(key);
+      return cached ? { ...cached, source: `cached:${cached.source}` } : item;
+    }
+    const available = { ...item, price: fallback.price, marketCap: fallback.marketCap, liquidity: fallback.liquidity, volume24h: fallback.volume24h, source: "Ave/GMGN fallback" };
+    lastAvailable.set(key, available);
+    return available;
   }));
   return Response.json({ items, serverTime: new Date().toISOString() }, { headers: { "Cache-Control": "public, max-age=2, stale-while-revalidate=10" } });
 }

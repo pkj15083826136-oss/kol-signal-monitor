@@ -15,4 +15,7 @@ export function mergeMarket(previous: BatchMarketItem | undefined, next: BatchMa
     liquidity: direction(previous?.liquidity, next.liquidity), volume24h: direction(previous?.volume24h, next.volume24h),
   } };
 }
+export function retainLastAvailable(previous: BatchMarketItem | undefined, next: BatchMarketItem): BatchMarketItem {
+  return next.source === "unavailable" && previous && previous.source !== "unavailable" ? previous : next;
+}
 export function isMarketStale(updatedAt: string, now = Date.now()) { return now - new Date(updatedAt).getTime() > 30_000; }

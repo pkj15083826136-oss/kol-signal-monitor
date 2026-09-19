@@ -36,26 +36,45 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 390, height: 844 }
 
 test("production BONK uses real batch market data and 3 second polling", async ({ page, request }) => {
   test.skip(process.env.E2E_REQUIRE_REAL_MARKET !== "1", "production-only evidence");
-  const response = await request.post("/api/market/batch", { data: { tokens: [{ chain: "sol", address: BONK_MINT }] } });
-  expect(response.ok()).toBeTruthy();
-  const payload = await response.json() as { items: Array<{ address: string; source: string; price: number; marketCap: number; liquidity: number; volume24h: number }> };
-  expect(payload.items).toHaveLength(1);
-  expect(payload.items[0].address).toBe(BONK_MINT);
-  expect(payload.items[0].source).not.toBe("unavailable");
-  expect(payload.items[0].price).toBeGreaterThan(0);
-  expect(payload.items[0].marketCap).toBeGreaterThan(0);
-  expect(payload.items[0].liquidity).toBeGreaterThan(0);
-  expect(payload.items[0].volume24h).toBeGreaterThan(0);
+  let payload: { items: Array<{ address: string; source: string; price: number; marketCap: number; liquidity: number; volume24h: number }> } | undefined;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const response = await request.post("/api/market/batch", { data: { tokens: [{ chain: "sol", address: BONK_MINT }] } });
+    expect(response.ok()).toBeTruthy();
+    payload = await response.json();
+    if (payload!.items[0]?.source !== "unavailable") break;
+    await page.waitForTimeout(3_000);
+  }
+  expect(payload).toBeTruthy();
+  const livePayload = payload!;
+  expect(livePayload.items).toHaveLength(1);
+  expect(livePayload.items[0].address).toBe(BONK_MINT);
+  expect(livePayload.items[0].source).not.toBe("unavailable");
+  expect(livePayload.items[0].price).toBeGreaterThan(0);
+  expect(livePayload.items[0].marketCap).toBeGreaterThan(0);
+  expect(livePayload.items[0].liquidity).toBeGreaterThan(0);
+  expect(livePayload.items[0].volume24h).toBeGreaterThan(0);
 
   const signals = await (await request.get("/api/signals")).json() as { signals: Array<{ id: number; tokenAddress: string }> };
   const bonk = signals.signals.find((signal) => signal.tokenAddress === BONK_MINT)!;
   let batchRequests = 0;
+  await page.addInitScript(() => {
+    let simulatedHidden = false;
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => simulatedHidden });
+    Object.defineProperty(window, "__setSimulatedHidden", { value: (value: boolean) => { simulatedHidden = value; document.dispatchEvent(new Event("visibilitychange")); } });
+  });
   page.on("request", (req) => { if (req.url().includes("/api/market/batch")) batchRequests += 1; });
   await page.goto(`/signal/${bonk.id}`, { waitUntil: "domcontentloaded" });
-  await page.waitForTimeout(7_200);
+  await page.waitForTimeout(12_500);
   expect(batchRequests).toBeGreaterThanOrEqual(3);
+  const visibleCount = batchRequests;
+  await page.evaluate(() => (window as unknown as { __setSimulatedHidden(value: boolean): void }).__setSimulatedHidden(true));
+  await page.waitForTimeout(4_000);
+  expect(batchRequests).toBe(visibleCount);
+  await page.evaluate(() => (window as unknown as { __setSimulatedHidden(value: boolean): void }).__setSimulatedHidden(false));
+  await expect.poll(() => batchRequests, { timeout: 2_000 }).toBeGreaterThan(visibleCount);
+  for (let attempt = 0; attempt < 3 && await page.getByRole("img", { name: "15分钟K线图" }).count() === 0; attempt += 1) await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.getByRole("img", { name: "15分钟K线图" })).toBeVisible();
-  await page.getByRole("button", { name: "5分钟" }).click();
+  await page.getByRole("button", { name: "5分钟", exact: true }).click();
   await expect(page.getByRole("img", { name: "5分钟K线图" })).toBeVisible();
   await expect(page.getByText("数据源不可用")).toHaveCount(0);
 });
