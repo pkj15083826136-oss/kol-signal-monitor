@@ -1,4 +1,5 @@
 import { getBatchMarketData } from "@/lib/batch-market";
+import { getMarketData } from "@/lib/market";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,12 @@ export async function POST(request: Request) {
     const address = typeof item.address === "string" ? item.address.trim() : "";
     return allowedChains.has(chain) && address.length >= 10 && address.length <= 128 ? [{ chain, address }] : [];
   });
-  const items = await getBatchMarketData(tokens);
+  const primary = await getBatchMarketData(tokens);
+  const items = await Promise.all(primary.map(async (item) => {
+    if (item.source !== "unavailable") return item;
+    const fallback = await getMarketData(item.chain, item.address).catch(() => null);
+    if (!fallback || !(fallback.price > 0 || fallback.marketCap > 0 || fallback.liquidity > 0 || fallback.volume24h > 0)) return item;
+    return { ...item, price: fallback.price, marketCap: fallback.marketCap, liquidity: fallback.liquidity, volume24h: fallback.volume24h, source: "Ave/GMGN fallback" };
+  }));
   return Response.json({ items, serverTime: new Date().toISOString() }, { headers: { "Cache-Control": "public, max-age=2, stale-while-revalidate=10" } });
 }
