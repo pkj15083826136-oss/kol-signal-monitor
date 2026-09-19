@@ -86,6 +86,7 @@ scripts/collect-gmgn.mjs     GitHub Actions侧采集器
 | `XAI_API_KEY` | X搜索和AI分析 |
 | `WECOM_WEBHOOK_URL` | 企业微信群机器人 |
 | `MONITOR_SECRET` | 监控接口鉴权 |
+| `MONITOR_PAUSED` | 受控迁移/维护期间暂停监控写入，默认 `false` |
 | `PUBLIC_SITE_URL` | 详情页公开地址 |
 
 ## 本地开发与验证

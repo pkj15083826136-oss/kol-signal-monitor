@@ -5,7 +5,7 @@ import { sendWeComAlert } from "@/lib/wecom";
 import { watchedByAddress } from "@/lib/wallets";
 import { getMarketData } from "@/lib/market";
 import { rejectFirstSignal } from "@/lib/signal-policy";
-import { isMonitorAuthorized } from "@/lib/monitor-auth";
+import { isMonitorAuthorized, isMonitorPaused } from "@/lib/monitor-auth";
 import { ALERT_THRESHOLDS, dueAlertThreshold, normalizeAddress } from "@/lib/monitor-policy";
 import { d1Bindings, d1Integer, d1Json, d1Number, d1Text, SIGNAL_MARKET_UPDATE_SQL, signalMarketUpdateBindings } from "@/lib/d1-values";
 import { deliverReadyAlerts, type AlertStore } from "@/lib/alert-delivery";
@@ -348,6 +348,9 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
 
 export async function POST(request: Request) {
   if (!authorized(request)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  if (isMonitorPaused((env as unknown as Record<string, unknown>).MONITOR_PAUSED)) {
+    return Response.json({ error: "Monitor temporarily paused" }, { status: 503, headers: { "Retry-After": "60" } });
+  }
   try {
     const requested = new URL(request.url).searchParams.get("chain");
     const selectedChain = CHAINS.includes(requested as typeof CHAINS[number])
