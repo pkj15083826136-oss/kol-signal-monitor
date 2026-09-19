@@ -32,7 +32,7 @@
 ### 规则与质量
 
 - 阈值仍为 6/18/38/58，选取逻辑保持原有“当前最高已达阶段”，唯一信号和状态共同保证幂等。
-- BONK 修正为真实 Solana mint：`DezXAZ8z7PnrnRJjz3wXBoRgixCa6hBA2iKeiYCp`；移除错误地址，且不再对 Solana 地址统一小写。
+- BONK 修正为真实 Solana mint：`DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263`；移除错误地址，且不再对 Solana 地址统一小写。
 - 增加 `pnpm test` 和 13 项自动化测试，覆盖要求中的全部场景。
 - 内部导航和远程头像改用 Next 组件，lint 错误与警告清零。
 

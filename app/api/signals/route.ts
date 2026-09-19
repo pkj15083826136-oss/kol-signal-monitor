@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { getMarketData } from "@/lib/market";
-import { verifiedTokenIdentity } from "@/lib/token-identity";
+import { isRejectedTokenIdentity, verifiedTokenIdentity } from "@/lib/token-identity";
 import { isMatureBaseAsset } from "@/lib/signal-policy";
 import { d1Bindings, d1Integer, d1Text } from "@/lib/d1-values";
 import { buildAlertSummary, buildChainHealth, buildSourceHealth } from "@/lib/ops-status";
@@ -55,7 +55,7 @@ export async function GET() {
     db.prepare("SELECT alert_status, COUNT(*) count FROM signals WHERE alert_status IN ('pending','retry','manual_review') GROUP BY alert_status").all<Row>(),
   ]);
   return Response.json({
-    signals: rows.results.map(mapSignal).filter((signal) => !isMatureBaseAsset(signal.symbol)), lastRun: run?.finished_at ?? null, monitorOk: run?.status === "success",
+    signals: rows.results.map(mapSignal).filter((signal) => !isRejectedTokenIdentity(signal.chain, signal.tokenAddress) && !isMatureBaseAsset(signal.symbol)), lastRun: run?.finished_at ?? null, monitorOk: run?.status === "success",
     chainHealth: buildChainHealth(chainRows.results), sourceHealth: buildSourceHealth(sourceRows.results), alertSummary: buildAlertSummary(alertRows.results),
   }, {
     headers: { "Cache-Control": "no-store, max-age=0" },

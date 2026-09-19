@@ -18,7 +18,7 @@ export async function POST(request: Request) {
   const db = env.DB;
   if (!db) return Response.json({ error: "DB binding 未配置" }, { status: 500 });
   const chain = "sol";
-  const token = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6hBA2iKeiYCp";
+  const token = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263";
   const name = "BONK 链路测试";
   const symbol = "BONK-TEST";
   const selected = (wallets as Array<{ address: string; name?: string; chains?: string[] }>).filter((w) => w.chains?.some((c) => c.toLowerCase() === "solana")).slice(0, 6);

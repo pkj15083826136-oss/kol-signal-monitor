@@ -26,8 +26,8 @@
   --font-mono: "SFMono-Regular", Consolas, monospace;
 }
 * { box-sizing: border-box; }
-html { background: #070a0f; color-scheme: dark; }
-body { margin: 0; background: #070a0f; color: var(--foreground); font-family: var(--font-sans); }
+html { width: 100%; max-width: 100%; overflow-x: clip; background: #070a0f; color-scheme: dark; }
+body { width: 100%; max-width: 100%; margin: 0; overflow-x: clip; background: #070a0f; color: var(--foreground); font-family: var(--font-sans); }
 .ambient { position: fixed; inset: 0; pointer-events: none; z-index: 0; background: radial-gradient(circle at 78% -8%, rgba(34,211,238,.11), transparent 30rem), radial-gradient(circle at 4% 38%, rgba(139,92,246,.07), transparent 26rem); }
 .ambient + * { position: relative; }
 .pulse { animation: pulse 2s ease-in-out infinite; box-shadow: 0 0 0 0 rgba(110,231,183,.45); }
