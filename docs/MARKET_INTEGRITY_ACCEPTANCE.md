@@ -42,3 +42,20 @@ Ave 生产响应验证了 12 个真实合约，均通过 token 身份校验并�
 ## 安全状态
 
 本次未修改 `MONITOR_SECRET`、GMGN 鉴权、企业微信 Webhook、6/18/38/58 阈值、Site/D1 binding 或任何钱包/交易 Feature Flag。没有发送真实企业微信测试消息，也没有启用钱包、报价、测试网或主网交易。
+
+## 生产 UI 与 K 线验收
+
+- 最终生产版本：Sites v38，提交 `00112a2655dd94e12967b06e1531bfb6f1484a13`。
+- 375×812、390×844 与 1440×1000 Playwright 验收通过，`scrollWidth <= clientWidth`，没有越界元素。
+- K 线上方重复的“价格 · 市值 · 流动性 · 24H · 持币 · 北京时间”摘要已删除；顶部五指标卡片是唯一行情区域。
+- HYPE 的 1m/5m/15m/1h/4h/1d 生产响应分别返回 481/121/121/169/181/181 根 Ave K 线。默认仍为 15m；E2E 验证五个非默认周期只各请求一次，再次切回 1m/5m 不增加请求，总计 5 次。
+- 生产 E2E：4/4 通过，覆盖两种手机视口、列表/详情、返回按钮、六周期、缓存、BONK 真实行情和至少 3 次 3 秒刷新。
+- 截图：`screenshots/prod-v38-list-desktop-1440x1000.png`、`screenshots/prod-v38-list-mobile-390x844.png`、`screenshots/prod-v38-hype-detail-desktop-1440x1000.png`、`screenshots/prod-v38-hype-detail-mobile-390x844.png`。
+
+## 自动化结果
+
+- `pnpm lint`：通过。
+- `pnpm exec tsc --noEmit --incremental false`：通过。
+- `pnpm test`：17 个测试文件、62 项测试全部通过。
+- `pnpm build`：通过。
+- `pnpm audit --prod`：仍报告 1 high + 3 moderate，全部来自当前关闭状态的钱包依赖树（Reown → Solana/WalletConnect 的 `bigint-buffer`、`uuid`、`decode-uri-component`、`stream-json`）；没有来自本次行情解析代码的新告警。钱包和交易 Feature Flag 均保持关闭，升级需等待上游兼容版本，不能通过强制覆盖破坏 Solana SDK 依赖。
