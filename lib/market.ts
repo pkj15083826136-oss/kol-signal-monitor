@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { KLINE_META, type KlineInterval } from "@/lib/kline";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -142,12 +143,12 @@ export async function getMarketData(chain: string, address: string, options: { u
   };
 }
 
-async function getAveKline(chain: string, address: string, interval: 5 | 15): Promise<Candle[]> {
+async function getAveKline(chain: string, address: string, interval: KlineInterval): Promise<Candle[]> {
   const apiKey = runtimeEnv("AVE_API_KEY");
   const chainId = aveChain[chain];
   if (!apiKey || !chainId) return [];
   const tokenId = `${address}-${chainId}`;
-  const response = await fetchWithRetry(`https://prod.ave-api.com/v2/klines/token/${encodeURIComponent(tokenId)}?interval=${interval}&limit=200`, {
+  const response = await fetchWithRetry(`https://prod.ave-api.com/v2/klines/token/${encodeURIComponent(tokenId)}?interval=${interval}&limit=${KLINE_META[interval].limit}`, {
     headers: { Accept: "application/json", "X-API-KEY": apiKey, "User-Agent": "KOL-Signal-Monitor/1.0" }, signal: AbortSignal.timeout(8000),
   });
   if (!response.ok) return [];
@@ -157,7 +158,7 @@ async function getAveKline(chain: string, address: string, interval: 5 | 15): Pr
   return points.map(record).map((row) => ({ time: number(row.time), open: number(row.open), high: number(row.high), low: number(row.low), close: number(row.close), volume: number(row.volume) })).filter((row) => row.time && row.high && row.low).sort((a, b) => a.time - b.time);
 }
 
-async function getGeckoKline(chain: string, address: string, interval: 5 | 15): Promise<Candle[]> {
+async function getGeckoKline(chain: string, address: string, interval: KlineInterval): Promise<Candle[]> {
   const network = geckoChain[chain];
   if (!network) return [];
   const poolsResponse = await fetchWithRetry(`https://api.geckoterminal.com/api/v2/networks/${network}/tokens/${encodeURIComponent(address)}/pools?page=1`, {
@@ -169,7 +170,8 @@ async function getGeckoKline(chain: string, address: string, interval: 5 | 15): 
   rows.sort((a, b) => number(record(b.attributes).reserve_in_usd) - number(record(a.attributes).reserve_in_usd));
   const poolAddress = string(record(rows[0]?.attributes).address);
   if (!poolAddress) return [];
-  const candleResponse = await fetchWithRetry(`https://api.geckoterminal.com/api/v2/networks/${network}/pools/${encodeURIComponent(poolAddress)}/ohlcv/minute?aggregate=${interval}&limit=200&currency=usd`, {
+  const meta = KLINE_META[interval];
+  const candleResponse = await fetchWithRetry(`https://api.geckoterminal.com/api/v2/networks/${network}/pools/${encodeURIComponent(poolAddress)}/ohlcv/${meta.geckoUnit}?aggregate=${meta.geckoAggregate}&limit=${meta.limit}&currency=usd`, {
     headers: { Accept: "application/json;version=20230302", "User-Agent": "KOL-Signal-Monitor/1.0" }, signal: AbortSignal.timeout(8000),
   });
   if (!candleResponse.ok) return [];
@@ -179,14 +181,14 @@ async function getGeckoKline(chain: string, address: string, interval: 5 | 15): 
   return raw.filter(Array.isArray).map((row) => ({ time: number(row[0]), open: number(row[1]), high: number(row[2]), low: number(row[3]), close: number(row[4]), volume: number(row[5]) })).sort((a, b) => a.time - b.time);
 }
 
-export async function getKlineData(chain: string, address: string, interval: 5 | 15 = 5): Promise<KlineResult> {
+export async function getKlineData(chain: string, address: string, interval: KlineInterval = 15): Promise<KlineResult> {
   const aveKey = runtimeEnv("AVE_API_KEY");
   const ave = await getAveKline(chain, address, interval).catch(() => []);
-  if (ave.length) return { candles: ave, source: `Ave.ai · ${interval}分钟`, reason: "" };
+  if (ave.length) return { candles: ave, source: `Ave.ai · ${KLINE_META[interval].label}`, reason: "" };
   const gecko = await getGeckoKline(chain, address, interval).catch(() => []);
-  if (gecko.length) return { candles: gecko, source: `GeckoTerminal · ${interval}分钟`, reason: "" };
+  if (gecko.length) return { candles: gecko, source: `GeckoTerminal · ${KLINE_META[interval].label}`, reason: "" };
   return {
     candles: [], source: "",
-    reason: aveKey ? `Ave.ai 与主流动池数据源均未返回该代币的${interval}分钟K线，通常是尚未形成可索引交易池或链暂未被支持。` : `当前未配置 Ave.ai API 密钥，公共主流动池数据源也未返回该代币${interval}分钟K线。`,
+    reason: aveKey ? `该链暂不支持此周期，或数据源尚未返回该代币的${KLINE_META[interval].label}K线。` : `该链暂不支持此周期，或当前公共数据源未返回${KLINE_META[interval].label}K线。`,
   };
 }

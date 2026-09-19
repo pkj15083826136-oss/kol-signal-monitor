@@ -2,7 +2,7 @@ import type { MarketData } from "@/lib/market";
 
 type JsonRecord = Record<string, unknown>;
 type DexPair = JsonRecord & { _requestedChain: string };
-export type BatchMarketItem = Pick<MarketData, "price" | "marketCap" | "liquidity" | "volume24h"> & { chain: string; address: string; updatedAt: string; source: string };
+export type BatchMarketItem = Pick<MarketData, "price" | "marketCap" | "liquidity" | "holders" | "volume24h"> & { chain: string; address: string; updatedAt: string; source: string };
 const dexChain: Record<string, string> = { sol: "solana", bsc: "bsc", base: "base", robinhood: "robinhood" };
 function record(value: unknown): JsonRecord { return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {}; }
 function number(value: unknown): number { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : 0; }
@@ -29,6 +29,6 @@ export async function getBatchMarketData(tokens: Array<{ chain: string; address:
   return tokens.slice(0, 30).map((token) => {
     const candidates = pairs.filter((pair) => pair._requestedChain === token.chain && string(record(pair.baseToken).address).toLowerCase() === token.address.toLowerCase());
     const pair = candidates.sort((a, b) => number(record(b.liquidity).usd) - number(record(a.liquidity).usd))[0] || {};
-    return { chain: token.chain, address: token.address, price: number(pair.priceUsd), marketCap: number(pair.marketCap) || number(pair.fdv), liquidity: number(record(pair.liquidity).usd), volume24h: number(record(pair.volume).h24), updatedAt, source: Object.keys(pair).length ? "DexScreener" : "unavailable" };
+    return { chain: token.chain, address: token.address, price: number(pair.priceUsd), marketCap: number(pair.marketCap) || number(pair.fdv), liquidity: number(record(pair.liquidity).usd), holders: 0, volume24h: number(record(pair.volume).h24), updatedAt, source: Object.keys(pair).length ? "DexScreener" : "unavailable" };
   });
 }

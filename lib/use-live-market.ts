@@ -4,10 +4,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { BatchMarketItem } from "@/lib/batch-market";
 import { marketKey, mergeMarket, pollingDelay, retainLastAvailable, type LiveMarketItem } from "@/lib/market-live";
 
-export function useLiveMarket(tokens: Array<{ chain: string; address: string }>, enabled = true) {
+export function useLiveMarket(tokens: Array<{ chain: string; address: string }>, enabled = true, initial: BatchMarketItem[] = []) {
   const stableKey = useMemo(() => tokens.slice(0, 30).map((token) => marketKey(token.chain, token.address)).join("|"), [tokens]);
-  const previous = useRef(new Map<string, BatchMarketItem>());
-  const [items, setItems] = useState<Record<string, LiveMarketItem>>({});
+  const previous = useRef(new Map(initial.map((item) => [marketKey(item.chain, item.address), item])));
+  const [items, setItems] = useState<Record<string, LiveMarketItem>>(() => Object.fromEntries(initial.map((item) => [marketKey(item.chain, item.address), mergeMarket(undefined, item)])));
   const [degraded, setDegraded] = useState(false);
   useEffect(() => {
     const normalized = stableKey.split("|").filter(Boolean).map((key) => { const split = key.indexOf(":"); return { chain: key.slice(0, split), address: key.slice(split + 1) }; });
