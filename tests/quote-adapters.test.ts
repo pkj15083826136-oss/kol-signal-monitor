@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import zeroXFixture from "./fixtures/zero-x-quote.json";
 import jupiterFixture from "./fixtures/jupiter-quote.json";
 import { zeroXAdapter } from "@/lib/trade/adapters/zero-x";
-import { JUPITER_PROGRAM, jupiterAdapter } from "@/lib/trade/adapters/jupiter";
+import { buildJupiterSwapRequest, JUPITER_PROGRAM, jupiterAdapter } from "@/lib/trade/adapters/jupiter";
 import { applyQuoteRisk, validateQuoteRequest, type QuoteRequest } from "@/lib/trade/quote";
 
 const evmRequest: QuoteRequest = { chain: "base", sellToken: zeroXFixture.sellToken, buyToken: zeroXFixture.buyToken, sellAmount: "1000000", taker: "0x5555555555555555555555555555555555555555", slippageBps: 100 };
@@ -14,6 +14,10 @@ describe("quote adapters and safety gate", () => {
     const jupiter = jupiterAdapter.parse(jupiterFixture, solRequest, 1_000_000);
     expect(zeroX).toMatchObject({ provider: "0x", minimumOut: "495000000000000", route: ["Uniswap_V3", "0x_RFQ"] });
     expect(jupiter).toMatchObject({ provider: "jupiter", minimumOut: "13860000", transaction: { to: JUPITER_PROGRAM } });
+    const swap = buildJupiterSwapRequest(jupiter, "11111111111111111111111111111111", "fixture-key");
+    expect(swap.url).toContain("/swap/v1/swap");
+    expect(swap.body).toContain("dynamicComputeUnitLimit");
+    expect(() => buildJupiterSwapRequest({ ...jupiter, minimumOut: "1" }, "11111111111111111111111111111111", "fixture-key")).toThrow("JUPITER_QUOTE_TAMPERED");
   });
   it("rejects wrong chain, tokens, targets, expiry, minimum received and simulation failure", () => {
     const quote = zeroXAdapter.parse(zeroXFixture, evmRequest, 1_000_000);

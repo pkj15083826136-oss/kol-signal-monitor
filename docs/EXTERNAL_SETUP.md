@@ -7,6 +7,7 @@
 - `REOWN_PROJECT_ID`：Reown Cloud 项目 ID；允许域名至少包含生产域名和本地验收域名。
 - `FEATURE_WALLET_CONNECT=true`：仅在 projectId 和允许域名完成后开启。默认关闭。
 - 四链专用 RPC：Solana mainnet、BSC 56、Base 8453、Robinhood Chain 4663；建议配置各供应商域名限制、速率限制和独立的测试网端点。Robinhood 官方公共 RPC 仅作为只读回退。
+- Sites 变量名：`SOLANA_RPC_URL`、`BSC_RPC_URL`、`BASE_RPC_URL`、`ROBINHOOD_RPC_URL`。测试网端点应使用独立变量/凭据，避免与主网混用。
 
 ## 行情与报价（Phase 2/3）
 
@@ -19,6 +20,7 @@
 
 - `FEATURE_TRADE_QUOTE`、`FEATURE_TRADE_TESTNET`：分别控制只读报价和测试网交易。
 - `FEATURE_TRADE_MAINNET` 及逐链主网开关：全部默认关闭；首次开启必须由项目所有者确认。
+- 逐链变量：`FEATURE_TRADE_MAINNET_SOL`、`FEATURE_TRADE_MAINNET_BSC`、`FEATURE_TRADE_MAINNET_BASE`、`FEATURE_TRADE_MAINNET_ROBINHOOD`；总开关和对应逐链开关必须同时为 `true`。
 - 测试网钱包与水龙头资产：仅由用户钱包保管和签名，系统不接收私钥或助记词。
 - 主网交易风险参数：最大滑点、最大价格影响、最高手续费/优先费、最小流动性与高税阈值。
 
@@ -26,3 +28,4 @@
 
 - 企业微信群只发送一条明确标记“系统链路测试”的消息，执行前单独确认。
 - 测试网和主网均由用户逐笔检查钱包弹窗并签名；主网广播开关在验收前保持关闭。
+- GitHub Actions 仓库 secret `MONITOR_SECRET` 必须与现有 Sites secret 同值。当前生产调度请求返回 401，因此四链连续三轮生产验证在该配置修复前无法完成；不得改回 `GMGN_API_KEY`。

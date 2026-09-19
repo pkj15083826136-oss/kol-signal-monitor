@@ -9,6 +9,7 @@ export type TradeQuote = {
   gasEstimate: string; priorityFee: string; route: string[]; expiresAt: string;
   transaction: { to: string; spender: string | null; value: string; calldata: string };
   blocked: boolean; blockReasons: string[];
+  providerPayload?: unknown;
 };
 
 export type QuoteValidationPolicy = { expectedChainId: string; expectedSellToken?: string; expectedBuyToken?: string; allowedTargets: string[]; allowedSpenders: string[]; maxPriceImpactPct?: number; maxTaxPct?: number; now?: number };

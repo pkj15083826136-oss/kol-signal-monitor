@@ -4,6 +4,7 @@ export type TradingFeatureFlags = {
   tradeQuote: boolean;
   tradeTestnet: boolean;
   tradeMainnet: boolean;
+  tradeMainnetChains: Record<"sol" | "bsc" | "base" | "robinhood", boolean>;
 };
 
 function enabled(value: string | undefined): boolean {
@@ -17,5 +18,11 @@ export function tradingFeatureFlags(source: Record<string, string | undefined>):
     tradeQuote: enabled(source.FEATURE_TRADE_QUOTE),
     tradeTestnet: enabled(source.FEATURE_TRADE_TESTNET),
     tradeMainnet: enabled(source.FEATURE_TRADE_MAINNET),
+    tradeMainnetChains: {
+      sol: enabled(source.FEATURE_TRADE_MAINNET_SOL),
+      bsc: enabled(source.FEATURE_TRADE_MAINNET_BSC),
+      base: enabled(source.FEATURE_TRADE_MAINNET_BASE),
+      robinhood: enabled(source.FEATURE_TRADE_MAINNET_ROBINHOOD),
+    },
   };
 }

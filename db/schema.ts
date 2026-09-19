@@ -105,3 +105,23 @@ export const sourceHealth = sqliteTable("source_health", {
   lastLatencyMs: integer("last_latency_ms").notNull().default(0),
   lastError: text("last_error"),
 }, (table) => [primaryKey({ columns: [table.source, table.chain] })]);
+
+export const userTrades = sqliteTable("user_trades", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  chain: text("chain").notNull(),
+  network: text("network").notNull(),
+  txHash: text("tx_hash").notNull(),
+  walletAddress: text("wallet_address").notNull(),
+  sellToken: text("sell_token").notNull(),
+  buyToken: text("buy_token").notNull(),
+  sellAmount: text("sell_amount").notNull(),
+  minimumOut: text("minimum_out").notNull(),
+  status: text("status").notNull(),
+  approvalTxHash: text("approval_tx_hash"),
+  errorCode: text("error_code"),
+  createdAt: text("created_at").notNull(),
+  confirmedAt: text("confirmed_at"),
+}, (table) => [
+  uniqueIndex("uidx_user_trades_chain_hash").on(table.chain, table.txHash),
+  index("idx_user_trades_wallet_time").on(table.walletAddress, table.createdAt),
+]);
