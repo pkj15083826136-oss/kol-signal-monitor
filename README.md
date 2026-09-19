@@ -1,126 +1,126 @@
-# vinext-starter
+# KOL Signal Monitor
 
-A clean full-stack starter running on [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and Drizzle support.
+面向 Solana、BSC、Base、Robinhood 四条链的 KOL/聪明钱包聚集预警系统。系统持续读取 GMGN 交易流，按独立钱包首次建仓人数聚合代币，在 6、18、38、58 人阶段触发预警，并把代币行情、X 热门帖子和简短中文 AI 分析发送到企业微信群，同时在网页保留信号和趋势图。
 
-## Prerequisites
+生产网站：<https://kol-signal-monitor.pkj15083826136.chatgpt.site>
+
+## 当前功能
+
+- 固定监控钱包池加 GMGN 动态 KOL 数据源
+- 四链轮询：`sol`、`bsc`、`base`、`robinhood`
+- 独立钱包去重，重复加仓只计一人
+- 预警阈值：6 / 18 / 38 / 58 人
+- 6 人首次执行 X 搜索与 AI 分析；38 人重新搜索并更新叙事
+- 企业微信机器人预警
+- GMGN、Ave.ai、DexScreener、GeckoTerminal 行情回退
+- 代币头像、市值、流动性、持币地址、24H成交额
+- 5分钟/15分钟 K 线
+- KOL 持仓人数、代币数量和估算价值趋势
+- 列表每15秒刷新，新信号置顶并短暂高亮
+- 全部显式时间使用北京时间
+
+## 核心信号规则
+
+1. 统计被监控钱包中当前余额大于零的钱包数。
+2. 达到 6、18、38、58 人之一且该阶段未预警时，生成一次信号。
+3. 首次信号过滤：
+   - WETH、WBTC、USDT、USDC 等成熟基础资产直接排除；
+   - 市值不高于 2000 万美元时可以进入；
+   - 市值高于 2000 万美元且创建超过 10 天时排除；
+   - 市值高于 2000 万美元但无法验证创建时间时，按保守策略排除。
+4. 已经有信号的代币仍继续采样持仓快照，但不会重复相同阈值。
+5. 每轮最多生成一个需要 AI 搜索的新信号，避免阻塞采集。
+
+规则的唯一实现位置是 `lib/signal-policy.ts`。修改阈值时不要在页面或 API 中复制数字。
+
+## 数据源职责
+
+| 数据源 | 用途 |
+| --- | --- |
+| GMGN OpenAPI | KOL、聪明钱包交易流和代币资料 |
+| Ave.ai Data API | 持币数、TVL、市值、价格、头像、5/15分钟K线 |
+| DexScreener | 合约身份校验、主池、价格、流动性、创建时间回退 |
+| GeckoTerminal | K线回退 |
+| xAI | 最近48小时X搜索、三条热门原创帖子、中文AI分析 |
+| 企业微信机器人 | 阶段预警推送 |
+
+代币名称和简称优先以 GMGN/主流动池为准。Ave 曾把 BONK 合约错误标为 TOGETHER，因此不可把 Ave 作为身份字段最高优先级。
+
+## 主要目录
+
+```text
+app/
+  api/monitor/run/route.ts   采集、聚合、过滤、预警主流程
+  api/signals/route.ts       列表实时数据与旧数据补全
+  dashboard.tsx              列表、筛选、自动刷新
+  signal/[id]/               详情页、K线、趋势图、复制按钮
+lib/
+  gmgn.ts                    GMGN API 封装
+  market.ts                  多行情源合并与K线
+  signal-policy.ts           新币信号准入规则
+  token-identity.ts          已确认的数据源错名修正
+  wallets.ts                 监控钱包加载与去重
+  wecom.ts                   企业微信消息
+  xai.ts                     X搜索和AI结构化输出
+data/wallets.json            监控钱包数据
+db/schema.ts                 D1表结构
+drizzle/                     生产数据库迁移
+docs/                        运行说明与Codex交接资料
+scripts/collect-gmgn.mjs     GitHub Actions侧采集器
+```
+
+## 运行环境
 
 - Node.js `>=22.13.0`
-- Portable: Windows, macOS, or Linux; no Bash required
-- Managed Linux: managed Linux runtime with Bash, `flock`, `curl`, `sha256sum`, and GNU `timeout`
-- Git is required only for publishing
+- 包管理器：pnpm（以 `pnpm-lock.yaml` 为准）
+- 框架：Vinext / React / TypeScript
+- 托管：ChatGPT Sites / Cloudflare Worker
+- 数据库：D1，绑定名固定为 `DB`
 
-## Sites Lifecycle
+生产环境变量只配置在 Sites，不写入仓库：
 
-The Sites initializer copies the shared starter and selects managed-linux only when `SITES_MANAGED_LINUX_CONTAINER=1`; otherwise it selects portable. It saves the selection only in ignored `.sites-runtime/execution-profile.json`. Both profiles copy/configure first, then use the plugin's separate `install-dependencies.mjs` step to measure installation independently. Edit source under `app/` and follow the Sites skill for installation, preview, builds, and publishing.
+| 变量 | 作用 |
+| --- | --- |
+| `GMGN_API_KEY` | GMGN 只读接口 |
+| `AVE_API_KEY` | Ave.ai Data API |
+| `XAI_API_KEY` | X搜索和AI分析 |
+| `WECOM_WEBHOOK_URL` | 企业微信群机器人 |
+| `MONITOR_SECRET` | 监控接口鉴权 |
+| `PUBLIC_SITE_URL` | 详情页公开地址 |
 
-Whenever reopening or moving a checkout, run `node <plugin-root>/scripts/configure-execution-profile.mjs` before project commands. Profile changes do not alter tracked source or require reinstalling otherwise-valid dependencies; restart an existing preview to use the new selection. Do not commit or upload `.sites-runtime/`.
+## 本地开发与验证
 
-This starter does not use `wrangler.jsonc`.
-
-`install:ci` runs `npm ci` once against the shared lockfile, disables parent-workspace discovery, and includes required dev/optional dependencies despite production/omit settings. Sharp defaults to prebuilt binaries unless explicitly configured otherwise. Do not overlap installers.
-
-- **Portable:** Preserve host HOME, npm cache, registry, proxy, temporary paths, retry/concurrency settings, and lifecycle-script policy. Use `--prefer-offline --no-audit --no-fund`.
-- **Managed Linux:** Use the existing project-local HOME/cache/tmp setup and Linux install lock, tarball preflight, and timeout. Restore the image-seeded npm cache only when its lockfile hash matches; retain network fallback. Builds keep their existing timeout. These helpers are not invoked by the portable profile.
-
-`scripts/sites-env.mjs` preserves the caller's HOME, npm cache, proxy, XDG, and temporary-directory configuration while defaulting Wrangler and Miniflare state to the checkout. If npm reports an unwritable cache, select a writable path with `npm_config_cache` for that install. The `dev` and `start` scripts also keep Wrangler logs inside the checkout. Generated `.sites-runtime/` and `.wrangler/` directories are disposable and ignored by Git.
-
-On portable, `npm run dev` uses `vinext dev` with HMR, starting at port 5173. Vinext records the running server in ignored `.vinext/` state, rejects an ordinary duplicate launch, and recovers stale state after a stopped process; exactly simultaneous starts can race. Pass `--port <port>` or `--hostname <host>` after `npm run dev --` when needed; keep portable previews on loopback.
-
-For browser QA on managed Linux, use `sites-preview start`. The project's dev script runs Vite and accepts the supervisor's `--host 0.0.0.0 --port 4173 --strictPort` arguments. The internal browser uses `http://terminal.local:4173/`; it is not a user-facing URL. The supervisor owns the preview lifecycle. The ignored local profile survives the supervisor's cleared process environment.
-
-The portable profile simulates ChatGPT sign-in only for loopback development requests. Visit `/signin-with-chatgpt?return_to=/` to sign in as `local_seedy` (`seedy@sites.test`, display name `Seedy`) and `/signout-with-chatgpt?return_to=/` to sign out. The development cookie preserves that identity across server restarts. Mock auth is disabled in the managed-linux profile and is not included in production builds; hosted authentication remains dispatch-owned.
-
-The Worker uses `vinext/server/fetch-handler`, including Vinext's config-aware image handling. After building, `npm start` runs that Worker locally through Wrangler on `127.0.0.1`, sharing `.wrangler/state` with dev preview and local D1 migrations; it does not deploy the site or simulate sign-in. Use the URL printed by the server. Pass `npm start -- --port <port>` to select a different built-preview port.
-
-Local previews use Miniflare's placeholder `Request.cf` metadata without a network lookup. Set `CLOUDFLARE_CF_FETCH_ENABLED=true` to opt into fetching preview metadata; this setting does not change hosted request metadata.
-
-Local tool usage metrics are disabled by default. Set `WRANGLER_SEND_METRICS=true` to opt in.
-
-## Included Shape
-
-- edit site code under `app/`
-- `app/chatgpt-auth.ts` provides optional dispatch-owned ChatGPT sign-in helpers
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/index.ts` reads the D1 binding from the Cloudflare Worker environment
-- `db/schema.ts` starts intentionally empty
-- `@cloudflare/workers-types` provides Worker types; `cloudflare-env.d.ts` declares optional `DB`/`BUCKET` bindings—update these declarations if binding names change
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
-
-## Workspace Auth Headers
-
-Signed-in visitors receive both `oai-authenticated-user-id` and `oai-authenticated-user-email`. Private Sites require every visitor to sign in; public Sites may also have anonymous visitors, for whom neither header is present.
-
-The user ID is stable for the same user on the same Site and different across Sites. Use it as the durable user key; use email and name for display or contact purposes.
-
-SIWC-authenticated workspace sites may also receive `oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty `name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by `oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const userId = requestHeaders.get("oai-authenticated-user-id");
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```bash
+pnpm install
+pnpm dev
+pnpm build
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+Sites 环境应优先使用 Sites 技能提供的配置、构建、打包和发布脚本，不要自行创建第二个 Site。
 
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs optional or required ChatGPT sign-in:
+发布前至少确认：
 
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use the returned `userId` as the stable user key for user-owned records; do not use email as a durable identifier.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send anonymous visitors through Sign in with ChatGPT.
-- In a Server Component, start sign-in with `<a href={chatGPTSignInPath(returnTo)} target="_top">`. The auth helper module is server-only; do not import it into a Client Component.
-- Do not use `fetch`, XHR, a client-side router, or a framework link that can prefetch the sign-in route. SIWC must start as a top-level navigation.
-- Never request the AuthAPI authorization endpoint directly. The dispatch-owned `/signin-with-chatgpt` route must start the SIWC flow.
-- Use `chatGPTSignOutPath(returnTo)` for browser sign-out links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because they depend on per-request identity headers.
+- 构建成功；
+- `/api/signals` 返回时间倒序数据；
+- 详情页 5/15 分钟K线可以切换；
+- 手机端无横向滚动；
+- 企业微信只在新阈值触发一次；
+- 没有把密钥写进源码、日志或提交历史。
 
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the OAuth cookies, and identity header injection. Do not implement app routes for those reserved paths. Routes that do not import and call the helper remain anonymous-compatible.
+## 数据表
 
-SIWC establishes identity only; it does not prove workspace membership. Use the Sites hosting platform's access policy controls for workspace-wide restrictions, or enforce explicit server-side membership or allowlist checks.
+- `trades`：去重后的钱包交易
+- `token_wallets`：钱包对代币的累计持仓
+- `signals`：阶段预警
+- `hot_posts`：6人/38人阶段保存的X热门帖子
+- `snapshots`：人数、数量和估算价值趋势
+- `monitor_runs`：每轮采集结果与错误
 
-Use SIWC for account pages, user-specific dashboards, saved records, and write actions tied to the current ChatGPT user. Leave public content anonymous.
+## 已知约束
 
-## Local D1 migrations
+- 第三方 API 可能缺失或返回错误元数据，必须保留多源回退和身份校验。
+- Ave API 按 CU 计费；常规持仓快照不应每次调用 Ave。
+- GitHub Actions 调度不是秒级实时系统；后续若要求更低延迟，应迁移到常驻 Worker/队列或独立服务器 WebSocket/RPC 采集器。
+- 当前站点只做监控和通知，不包含自动买入、私钥保存或交易签名。
 
-For a D1-backed local preview, generate SQL with `npm run db:generate`. Build once through the Sites skill's build entrypoint (or `npm run build` for standalone use) to generate `dist/server/wrangler.json`, rebuilding if bindings change. From the project root, apply each pending migration in order:
-
-```sh
-node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1 execute DB --local --config dist/server/wrangler.json --persist-to .wrangler/state --file drizzle/0000_example.sql
-```
-
-Replace the filename with the pending migration and `DB` with your D1 binding name if different. Use `.wrangler/state`, not `.wrangler/state/v3`; Wrangler adds the versioned directories. Do not replay migrations already applied locally. This updates only the preview database; publishing applies production migrations separately.
-
-## Diagnostic Commands
-
-- `npm run install:ci`: perform the one locked dependency install
-- `npm run dev`: start the Vite/Vinext development server
-- `npm run build`: build the deployable Sites artifact
-- `npm run start`: preview the built Worker locally with D1/R2 support
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-
-When using the Sites plugin, follow its skill instructions for installation, builds, and publishing. These npm commands remain available for standalone use.
-
-The portable build runs Vinext directly without a host `timeout` command. The managed-linux build uses `scripts/build-verified.sh` and its existing `SITES_BUILD_TIMEOUT` setting.
-
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+详细接管说明见 `docs/CODEX_HANDOFF.md`，开发约束见 `AGENTS.md`。

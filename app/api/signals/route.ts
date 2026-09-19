@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { getMarketData } from "@/lib/market";
 import { verifiedTokenIdentity } from "@/lib/token-identity";
+import { isMatureBaseAsset } from "@/lib/signal-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -41,7 +42,7 @@ export async function GET() {
       .bind(next.name, next.symbol, next.logo, Math.round(next.marketCap), Math.round(next.liquidity), Math.round(next.holders), Math.round(next.volume24h), Number(row.id)).run();
   }));
   const run = await env.DB.prepare("SELECT status, finished_at FROM monitor_runs ORDER BY id DESC LIMIT 1").first<{ status: string; finished_at: string }>();
-  return Response.json({ signals: rows.results.map(mapSignal), lastRun: run?.finished_at ?? null, monitorOk: run?.status === "success" }, {
+  return Response.json({ signals: rows.results.map(mapSignal).filter((signal) => !isMatureBaseAsset(signal.symbol)), lastRun: run?.finished_at ?? null, monitorOk: run?.status === "success" }, {
     headers: { "Cache-Control": "no-store, max-age=0" },
   });
 }

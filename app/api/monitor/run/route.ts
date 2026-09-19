@@ -4,6 +4,7 @@ import { analyzeNarrative, type NarrativeResult } from "@/lib/xai";
 import { sendWeComAlert } from "@/lib/wecom";
 import { watchedByAddress } from "@/lib/wallets";
 import { getMarketData } from "@/lib/market";
+import { rejectFirstSignal } from "@/lib/signal-policy";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -204,11 +205,11 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
       // Ave CU is used once for a token's first signal; routine snapshots use
       // public market feeds so continuous monitoring does not burn the quota.
       const liveMarket = await getMarketData(chain, token, { useAve: !previousSignal }).catch(() => null);
-      const isOldHighCapFirstSignal = !previousSignal
-        && Number(liveMarket?.marketCap || 0) > 10_000_000
-        && Number(liveMarket?.createdAt || 0) > 0
-        && Date.now() - Number(liveMarket?.createdAt) > 10 * 24 * 60 * 60 * 1000;
-      if (isOldHighCapFirstSignal) continue;
+      if (!previousSignal && rejectFirstSignal({
+        symbol: String(liveMarket?.symbol || ""),
+        marketCap: Number(liveMarket?.marketCap || 0),
+        createdAt: Number(liveMarket?.createdAt || 0),
+      })) continue;
       const price = liveMarket?.price || Number(previousSignal?.price || 0);
       await db.prepare("INSERT INTO snapshots (chain, token_address, holder_count, total_buy_usd, total_token_amount, market_value, captured_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
         .bind(chain, token, holderCount, Math.round(Number(aggregate?.total_buy_usd || 0)), Number(aggregate?.total_token_amount || 0), Number(aggregate?.total_token_amount || 0) * price, new Date().toISOString()).run();
