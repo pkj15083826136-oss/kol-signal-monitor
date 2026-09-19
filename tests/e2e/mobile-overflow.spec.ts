@@ -59,7 +59,7 @@ test("desktop screenshots, relative signal time, navigation fallback and cached 
   await page.screenshot({ path: `docs/screenshots/${evidenceLabel}-list-desktop-1440x1000.png`, fullPage: true });
   await page.getByRole("link", { name: `查看 ${signal.symbol} 详情` }).first().click();
   await expect(page).toHaveURL(new RegExp(`/signal/${signal.id}$`));
-  await page.getByRole("link", { name: "返回预警列表" }).click();
+  await page.getByRole("button", { name: "返回预警列表" }).click();
   await expect(page).toHaveURL(/\/$/);
 
   const direct = await context.newPage();
@@ -77,7 +77,7 @@ test("desktop screenshots, relative signal time, navigation fallback and cached 
   expect(klineRequests).toBe(4);
   await direct.evaluate(() => sessionStorage.clear());
   await direct.reload({ waitUntil: "domcontentloaded" });
-  await direct.getByRole("link", { name: "返回预警列表" }).click();
+  await direct.getByRole("button", { name: "返回预警列表" }).click();
   await expect(direct).toHaveURL(/\/$/);
 });
 
