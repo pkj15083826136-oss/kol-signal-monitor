@@ -2,6 +2,20 @@
 
 所有配置必须通过 Sites 环境变量提供，不写入源码、测试、日志或提交。客户端钱包连接所需的 projectId 和 RPC URL 本质上会发送到浏览器，应使用仅限允许域名、有限额的前端凭据。
 
+## 配置入口（项目所有者）
+
+| 项目 | 官方入口 | 需要保存到 Sites 的变量/资料 |
+| --- | --- | --- |
+| Reown AppKit | <https://dashboard.reown.com> | `REOWN_PROJECT_ID`；生产域名与本地验收域名 allowlist |
+| Jupiter | <https://portal.jup.ag>、<https://dev.jup.ag> | `JUPITER_API_KEY`（若所选接口/套餐要求）；允许的 program/route 清单 |
+| 0x | <https://dashboard.0x.org>、<https://docs.0x.org/docs/introduction/quickstart/getting-started> | `ZEROX_API_KEY`；逐链 `to`、spender 与 token allowlist |
+| Solana RPC | <https://solana.com/docs/references/clusters> | `SOLANA_RPC_URL`；mainnet-beta，生产使用专用/受限 RPC，不使用公开端点承载交易 |
+| BSC RPC | <https://docs.bnbchain.org/bnb-smart-chain/developers/json_rpc/json-rpc-endpoint/> | `BSC_RPC_URL`；mainnet chain id `56` |
+| Base RPC | <https://docs.base.org/base-chain/api-reference/ethereum-json-rpc-api/eth_chainId> | `BASE_RPC_URL`；mainnet chain id `8453` |
+| Robinhood Chain RPC | <https://docs.robinhood.com/chain/connecting/> | `ROBINHOOD_RPC_URL`；mainnet `4663`、testnet `46630`；生产优先专用 provider |
+
+上述入口只用于准备配置。当前 `FEATURE_WALLET_CONNECT`、`FEATURE_TRADE_QUOTE`、`FEATURE_TRADE_TESTNET`、`FEATURE_TRADE_MAINNET` 及全部逐链主网开关继续保持 `false`。
+
 ## 钱包（Phase 1）
 
 - `REOWN_PROJECT_ID`：Reown Cloud 项目 ID；允许域名至少包含生产域名和本地验收域名。

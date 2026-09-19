@@ -1,4 +1,4 @@
-# Phase 0.1—4 最终配置前验收记录（未全部通过）
+# Phase 0.1—4 最终配置前验收记录（Phase 0 生产门禁未关闭）
 
 日期：2026-09-19（Asia/Shanghai）
 
@@ -14,6 +14,16 @@
 | Phase 4 | `6ea42c7` | 交易状态机、精确授权、钱包签名/广播接口、receipt、记录与默认关闭的双重主网门禁 |
 
 本轮最终配置前修复提交：`8faabaf`（BONK 身份、真实数据语义、移动端 E2E）、`114d82e`（行情上游标识）、`74d522c`（批量行情真实回退）、`4182007`（K 线重试与生产证据）、`942460f`（降级时保留最后真实报价并标记陈旧）。生产当前为 Sites version 29，对应 `942460f`。
+
+GitHub Actions `main` 已增加“采集失败必须使 workflow 失败”及“连续 3 次失败提前停止”保护，远端提交为 `919ed3b`、`e549823`。这两项只修正 CI 结果语义和故障收敛，不改变 6/18/38/58 规则、数据源或 Site 运行代码。
+
+## 2026-09-19 生产监控复验
+
+- 项目所有者报告使用新凭据直接请求生产 Monitor API 返回 HTTP 200；D1 记录 `monitor_runs.id=592` 为 Base 成功，开始时间 `2026-09-19T14:59:54.051Z`，抓取 0、匹配 0、新交易 0、新信号 0、错误为空。该记录证明生产端接受该次直接调用，但不能证明 GitHub Actions Secret 已生效，也不能计作四链各三轮。
+- 新配置后的 GitHub Actions Run #20（`35451317872`，提交 `e549823`）在 `2026-09-19T15:17:17Z`、`15:18:07Z`、`15:18:58Z` 分别执行 Solana、BSC、Base，三次均由生产 Monitor API 返回 HTTP 401；工作流随后按连续失败保护正确以 failure 结束。Robinhood 未执行，D1 未新增对应记录。
+- 因请求在鉴权边界被拒绝，上述三次没有进入 D1 写入路径；不能据此完成 D1 规范化的四链生产回归，但日志中没有出现 `D1_TYPE_ERROR` 或 `undefined bind`。
+- 生产 `signals` 表全量 31 条记录均为 `alert_status=sent`，`pending=0`、`failed=0`、`manual_review=0`；未发现相同 `chain + token_address + threshold` 的重复阶段记录。未发送真实企业微信测试消息。
+- 结论：GitHub Actions 在 Run #20 中读取的 `MONITOR_SECRET` 仍与当前生产 Site 不一致。四链每链连续三轮成功为 **0/3、0/3、0/3、0/3**，Phase 0 生产门禁保持打开，不得判定通过。
 
 ## 数据库迁移
 
@@ -71,7 +81,7 @@
 
 ## 尚需外部配置与人工验收
 
-1. 修正 GitHub Actions 仓库 `pkj15083826136-oss/kol-signal-monitor` 的 `MONITOR_SECRET`，使其与 Sites 的同名 secret 一致；当前工具可识别仓库但不能写 Actions Secret 或 dispatch workflow，浏览器也未登录。不得单边轮换 Sites secret。当前生产调度仍为 401，四链每链连续三轮成功尚未完成，整体状态不得判定为全部通过。
+1. 再次更新 GitHub Actions 仓库 `pkj15083826136-oss/kol-signal-monitor` 的 repository secret `MONITOR_SECRET`，确保目标确为该仓库、名称没有前后空格，且保存发生在 Run #20 启动之后；生产 Site 端不要再次单边轮换。当前工具可提交/读取仓库内容，但不能读取或写 Actions Secret，浏览器也未登录。更新后重新运行 workflow，并以 D1 新增四链各三条 success 记录为唯一通过依据。
 2. 提供 Reown projectId、Jupiter/0x key、四链受限 RPC、聚合器 target/spender/token allowlist 与风险上限；详见 `EXTERNAL_SETUP.md`。
 3. 获得确认后，仅发送一条标记“系统链路测试”的真实企业微信消息。
 4. 使用项目所有者控制的测试钱包和水龙头资产，逐笔验收 connect、switch、quote、reject、approve、swap、timeout、失败和 receipt；系统不得接触私钥/助记词。
@@ -79,7 +89,7 @@
 
 ## 风险与回滚
 
-- 调度鉴权配置错误是当前生产阻塞，不应降低接口鉴权或复用 `GMGN_API_KEY` 绕过。
+- 调度鉴权配置错误是当前生产阻塞；Run #20 已证明 Actions 仍返回 401，不应降低接口鉴权或复用 `GMGN_API_KEY` 绕过。
 - Reown 依赖体积较大且存在上游审计项；钱包功能保持关闭可隔离运行风险。
 - 第三方行情/报价/RPC 都可能限流或降级；失败时 UI 必须显示不可用并阻止交易，不自动重试下单。
 - 代码回滚：将既有 Site 部署回上一个成功版本或 commit `1c49ccc`。
