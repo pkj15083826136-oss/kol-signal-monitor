@@ -89,6 +89,8 @@ scripts/collect-gmgn.mjs     GitHub Actions侧采集器
 | `MONITOR_SECRET` | 监控接口鉴权 |
 | `MONITOR_PAUSED` | 受控迁移/维护期间暂停监控写入，默认 `false` |
 | `PUBLIC_SITE_URL` | 详情页公开地址 |
+| `REOWN_PROJECT_ID` | Reown AppKit 前端项目 ID；需要域名限制 |
+| `FEATURE_WALLET_CONNECT` | 只读钱包连接开关，默认 `false` |
 
 ## 本地开发与验证
 
@@ -128,3 +130,5 @@ Sites 环境应优先使用 Sites 技能提供的配置、构建、打包和发�
 详细接管说明见 `docs/CODEX_HANDOFF.md`，开发约束见 `AGENTS.md`。
 
 钱包连接、动态行情、K 线升级与用户逐笔确认的手动交易范围见 `docs/TRADING_UPGRADE.md`。生产版本尚未开启交易广播，实施时必须按 Phase 0—5 分阶段并使用默认关闭的 Feature Flag。
+
+阶段记录见 `docs/PHASE_0_1_REMEDIATION.md`、`docs/PHASE_0_2_OBSERVABILITY.md` 和 `docs/PHASE_1_WALLET_READONLY.md`；待项目所有者配置的外部项集中记录在 `docs/EXTERNAL_SETUP.md`。

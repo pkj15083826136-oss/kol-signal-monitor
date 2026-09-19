@@ -4,10 +4,15 @@ minimumReleaseAgeIgnoreMissingTime: false
 trustLockfile: false
 strictDepBuilds: true
 allowBuilds:
+  '@reown/appkit': true
+  bigint-buffer: true
+  bufferutil: true
   esbuild: true
   fsevents: true
+  keccak: true
   sharp: true
   unrs-resolver: true
+  utf-8-validate: true
   workerd: true
 storeDir: ${SITES_PNPM_SHARED_STORE:-.sites-runtime/pnpm-store}
 cacheDir: ${SITES_PNPM_SHARED_STORE:-.sites-runtime/pnpm-store}/policy-cache
@@ -19,6 +24,8 @@ verifyDepsBeforeRun: false
 optimisticRepeatInstall: false
 overrides:
   miniflare>sharp: 0.35.4
+  axios: 1.18.0
+  ws: 8.21.0
   '@babel/core': 7.29.7
   baseline-browser-mapping: 2.11.1
   browserslist: 4.28.8

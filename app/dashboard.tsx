@@ -6,6 +6,7 @@ import { BellRing, ChevronRight, Clock3, Database, Flame, RadioTower, Search, Sp
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import CopyAddress from "./signal/[id]/copy-address";
 import type { AlertSummary, ChainHealth, SourceHealth } from "@/lib/ops-status";
+import WalletButton from "@/components/wallet/wallet-button";
 
 export type SignalRow = {
   id: number; chain: string; tokenAddress: string; name: string; symbol: string; logo: string; threshold: number; holderCount: number;
@@ -57,7 +58,7 @@ export default function Dashboard({ signals: initialSignals, walletCount, lastRu
   const uniqueTokens = new Set(signals.map((signal) => `${signal.chain}:${signal.tokenAddress}`)).size;
   return <main className="min-h-screen overflow-x-hidden bg-[#070a0f] text-[#edf2f7]">
     <div className="ambient" />
-    <header className="sticky top-0 z-30 border-b border-white/[0.07] bg-[#070a0f]/85 backdrop-blur-xl"><div className="mx-auto flex h-16 max-w-[1500px] items-center justify-between px-4 sm:px-7"><div className="flex items-center gap-3"><div className="grid h-9 w-9 place-items-center rounded-xl border border-cyan-300/20 bg-cyan-300/10 text-cyan-300"><RadioTower size={18} /></div><div><div className="font-semibold tracking-tight">KOL Signal</div><div className="text-[11px] tracking-[0.18em] text-slate-500">SMART FLOW MONITOR</div></div></div><div className="flex items-center gap-3 text-sm"><span className="hidden text-slate-500 sm:inline">15秒自动刷新</span><span className="flex items-center gap-2 rounded-full border border-emerald-300/15 bg-emerald-300/[0.07] px-3 py-1.5 text-emerald-300"><span className={`h-1.5 w-1.5 rounded-full ${monitorOk || demo ? "bg-emerald-300 pulse" : "bg-amber-300"}`} />{demo ? "等待真实信号" : monitorOk ? "运行正常" : "等待调度"}</span></div></div></header>
+    <header className="sticky top-0 z-30 border-b border-white/[0.07] bg-[#070a0f]/85 backdrop-blur-xl"><div className="mx-auto flex h-16 max-w-[1500px] items-center justify-between px-4 sm:px-7"><div className="flex items-center gap-3"><div className="grid h-9 w-9 place-items-center rounded-xl border border-cyan-300/20 bg-cyan-300/10 text-cyan-300"><RadioTower size={18} /></div><div><div className="font-semibold tracking-tight">KOL Signal</div><div className="text-[11px] tracking-[0.18em] text-slate-500">SMART FLOW MONITOR</div></div></div><div className="flex items-center gap-2 text-sm"><span className="hidden text-slate-500 xl:inline">15秒自动刷新</span><span className="hidden items-center gap-2 rounded-full border border-emerald-300/15 bg-emerald-300/[0.07] px-3 py-1.5 text-emerald-300 sm:flex"><span className={`h-1.5 w-1.5 rounded-full ${monitorOk || demo ? "bg-emerald-300 pulse" : "bg-amber-300"}`} />{demo ? "等待真实信号" : monitorOk ? "运行正常" : "等待调度"}</span><WalletButton/></div></div></header>
     <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-7 sm:py-8">
       {demo && <div className="mb-5 rounded-xl border border-amber-300/15 bg-amber-300/[0.06] px-4 py-3 text-sm text-amber-100">当前展示界面示例；监控产生真实信号后会自动替换。</div>}
       <SystemStatus chains={chainHealth} sources={sourceHealth} alerts={alertSummary}/>
