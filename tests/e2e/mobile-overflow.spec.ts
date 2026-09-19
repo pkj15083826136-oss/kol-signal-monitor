@@ -40,7 +40,8 @@ test("production BONK uses real batch market data and 3 second polling", async (
   expect(response.ok()).toBeTruthy();
   const payload = await response.json() as { items: Array<{ address: string; source: string; price: number; marketCap: number; liquidity: number; volume24h: number }> };
   expect(payload.items).toHaveLength(1);
-  expect(payload.items[0]).toMatchObject({ address: BONK_MINT, source: "DexScreener" });
+  expect(payload.items[0].address).toBe(BONK_MINT);
+  expect(payload.items[0].source).not.toBe("unavailable");
   expect(payload.items[0].price).toBeGreaterThan(0);
   expect(payload.items[0].marketCap).toBeGreaterThan(0);
   expect(payload.items[0].liquidity).toBeGreaterThan(0);

@@ -34,6 +34,19 @@ function timestamp(value: unknown): number {
   return parsed < 1e12 ? parsed * 1000 : parsed;
 }
 function runtimeEnv(name: string): string { const value = (env as unknown as Record<string, unknown>)[name]; return typeof value === "string" ? value : ""; }
+async function fetchWithRetry(url: string, init: RequestInit, attempts = 2): Promise<Response> {
+  let response: Response | undefined;
+  let error: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      response = await fetch(url, init);
+      if (response.ok || response.status < 429) return response;
+    } catch (caught) { error = caught; }
+    if (attempt + 1 < attempts) await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+  }
+  if (response) return response;
+  throw error instanceof Error ? error : new Error("行情数据源请求失败");
+}
 
 function bestPair(payload: unknown, address: string) {
   const pairs = Array.isArray(payload) ? payload.map(record) : [];
@@ -134,8 +147,8 @@ async function getAveKline(chain: string, address: string, interval: 5 | 15): Pr
   const chainId = aveChain[chain];
   if (!apiKey || !chainId) return [];
   const tokenId = `${address}-${chainId}`;
-  const response = await fetch(`https://prod.ave-api.com/v2/klines/token/${encodeURIComponent(tokenId)}?interval=${interval}&limit=200`, {
-    headers: { Accept: "application/json", "X-API-KEY": apiKey }, signal: AbortSignal.timeout(8000),
+  const response = await fetchWithRetry(`https://prod.ave-api.com/v2/klines/token/${encodeURIComponent(tokenId)}?interval=${interval}&limit=200`, {
+    headers: { Accept: "application/json", "X-API-KEY": apiKey, "User-Agent": "KOL-Signal-Monitor/1.0" }, signal: AbortSignal.timeout(8000),
   });
   if (!response.ok) return [];
   const root = record(await response.json());
@@ -147,8 +160,8 @@ async function getAveKline(chain: string, address: string, interval: 5 | 15): Pr
 async function getGeckoKline(chain: string, address: string, interval: 5 | 15): Promise<Candle[]> {
   const network = geckoChain[chain];
   if (!network) return [];
-  const poolsResponse = await fetch(`https://api.geckoterminal.com/api/v2/networks/${network}/tokens/${encodeURIComponent(address)}/pools?page=1`, {
-    headers: { Accept: "application/json;version=20230302" }, signal: AbortSignal.timeout(8000),
+  const poolsResponse = await fetchWithRetry(`https://api.geckoterminal.com/api/v2/networks/${network}/tokens/${encodeURIComponent(address)}/pools?page=1`, {
+    headers: { Accept: "application/json;version=20230302", "User-Agent": "KOL-Signal-Monitor/1.0" }, signal: AbortSignal.timeout(8000),
   });
   if (!poolsResponse.ok) return [];
   const pools = record(await poolsResponse.json()).data;
@@ -156,8 +169,8 @@ async function getGeckoKline(chain: string, address: string, interval: 5 | 15): 
   rows.sort((a, b) => number(record(b.attributes).reserve_in_usd) - number(record(a.attributes).reserve_in_usd));
   const poolAddress = string(record(rows[0]?.attributes).address);
   if (!poolAddress) return [];
-  const candleResponse = await fetch(`https://api.geckoterminal.com/api/v2/networks/${network}/pools/${encodeURIComponent(poolAddress)}/ohlcv/minute?aggregate=${interval}&limit=200&currency=usd`, {
-    headers: { Accept: "application/json;version=20230302" }, signal: AbortSignal.timeout(8000),
+  const candleResponse = await fetchWithRetry(`https://api.geckoterminal.com/api/v2/networks/${network}/pools/${encodeURIComponent(poolAddress)}/ohlcv/minute?aggregate=${interval}&limit=200&currency=usd`, {
+    headers: { Accept: "application/json;version=20230302", "User-Agent": "KOL-Signal-Monitor/1.0" }, signal: AbortSignal.timeout(8000),
   });
   if (!candleResponse.ok) return [];
   const list = record(record(await candleResponse.json()).data).attributes;
