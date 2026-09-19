@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import hypeAve from "./fixtures/hype-ave.json";
-import { parseAveToken, parseGmgnToken, resolveTokenMarket } from "@/lib/token-market";
+import { parseAveToken, parseGmgnToken, resolveTokenMarket, tokenAddressEquals } from "@/lib/token-market";
 
 const address = "98sMhvDwXj1RQj5c5Mndm3vPe9cBqPrbLaufMXFNMh5g";
 
@@ -44,5 +44,9 @@ describe("token-level market normalization", () => {
     const expectedAddress = chain === "sol" ? address : "0xabc";
     const parsed = chain === "sol" ? parseAveToken(payload, chain, expectedAddress) : parseGmgnToken(payload, chain, expectedAddress);
     expect(parsed?.holderCount).toBe(expected);
+  });
+  it("keeps Solana addresses case-sensitive while normalizing EVM addresses", () => {
+    expect(tokenAddressEquals("sol", "AbCi", "AbCJ")).toBe(false);
+    expect(tokenAddressEquals("base", "0xAbC", "0xabc")).toBe(true);
   });
 });
