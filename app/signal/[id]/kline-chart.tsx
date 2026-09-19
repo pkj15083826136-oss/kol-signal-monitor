@@ -1,32 +1,29 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { CandlestickSeries, ColorType, HistogramSeries, createChart, type Time, type UTCTimestamp } from "lightweight-charts";
 import type { Candle, KlineResult } from "@/lib/market";
 
-function compactPrice(value: number) {
-  if (value >= 1) return value.toLocaleString("en-US", { maximumFractionDigits: 4 });
-  return value.toPrecision(4);
-}
-
 function Chart({ data, interval }: { data: Candle[]; interval: 5 | 15 }) {
-  const width = 960, height = 330, top = 22, bottom = 34, left = 12, right = 72;
-  const plotWidth = width - left - right, plotHeight = height - top - bottom;
-  const visible = data.slice(-120);
-  if (!visible.length) return <div className="grid h-72 place-items-center text-sm text-slate-600">暂未获取到该链的K线数据</div>;
-  const min = Math.min(...visible.map((c) => c.low));
-  const max = Math.max(...visible.map((c) => c.high));
-  const range = max - min || max || 1;
-  const y = (value: number) => top + (max - value) / range * plotHeight;
-  const step = plotWidth / visible.length;
-  const bodyWidth = Math.max(1.5, Math.min(6, step * 0.62));
-  const grid = Array.from({ length: 5 }, (_, index) => max - range * index / 4);
-  return <div className="mt-4 overflow-hidden rounded-xl border border-white/[0.06] bg-[#080c12]">
-    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${interval}分钟K线图`} className="block h-auto min-h-[260px] w-full">
-      {grid.map((value) => <g key={value}><line x1={left} x2={width-right} y1={y(value)} y2={y(value)} stroke="#ffffff0d"/><text x={width-right+9} y={y(value)+4} fill="#526070" fontSize="11">{compactPrice(value)}</text></g>)}
-      {visible.map((candle, index) => { const x = left + (index + .5) * step; const up = candle.close >= candle.open; const color = up ? "#34d399" : "#fb7185"; const bodyTop = y(Math.max(candle.open, candle.close)); const bodyHeight = Math.max(1, Math.abs(y(candle.open)-y(candle.close))); return <g key={`${candle.time}-${index}`}><line x1={x} x2={x} y1={y(candle.high)} y2={y(candle.low)} stroke={color} strokeWidth="1"/><rect x={x-bodyWidth/2} y={bodyTop} width={bodyWidth} height={bodyHeight} rx=".5" fill={color}/></g>; })}
-      {[0, .25, .5, .75, 1].map((ratio) => { const item = visible[Math.min(visible.length-1, Math.floor((visible.length-1)*ratio))]; return <text key={ratio} x={left+plotWidth*ratio} y={height-11} textAnchor={ratio===0?"start":ratio===1?"end":"middle"} fill="#526070" fontSize="11">{new Date(item.time*1000).toLocaleTimeString("zh-CN", {timeZone:"Asia/Shanghai", hour:"2-digit", minute:"2-digit", hour12:false})}</text>; })}
-    </svg>
-  </div>;
+  const target = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!target.current || !data.length) return;
+    const chart = createChart(target.current, {
+      height: 330, autoSize: true,
+      layout: { background: { type: ColorType.Solid, color: "#080c12" }, textColor: "#64748b", attributionLogo: false },
+      grid: { vertLines: { color: "#ffffff08" }, horzLines: { color: "#ffffff0d" } },
+      rightPriceScale: { borderColor: "#ffffff12" }, timeScale: { borderColor: "#ffffff12", timeVisible: true, secondsVisible: false },
+      localization: { timeFormatter: (time: Time) => new Date(Number(time) * 1000).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }) },
+    });
+    const candles = chart.addSeries(CandlestickSeries, { upColor: "#34d399", downColor: "#fb7185", borderVisible: false, wickUpColor: "#34d399", wickDownColor: "#fb7185" });
+    candles.setData(data.map((item) => ({ time: item.time as UTCTimestamp, open: item.open, high: item.high, low: item.low, close: item.close })));
+    const volume = chart.addSeries(HistogramSeries, { priceFormat: { type: "volume" }, priceScaleId: "volume", color: "#334155" });
+    volume.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+    volume.setData(data.map((item) => ({ time: item.time as UTCTimestamp, value: item.volume, color: item.close >= item.open ? "#34d39955" : "#fb718555" })));
+    chart.timeScale().fitContent();
+    return () => chart.remove();
+  }, [data, interval]);
+  return <div className="mt-4 min-h-[330px] overflow-hidden rounded-xl border border-white/[0.06] bg-[#080c12]" ref={target} role="img" aria-label={`${interval}分钟K线图`}/>;
 }
 
 export default function KlineChart({ five, fifteen }: { five: KlineResult; fifteen: KlineResult }) {
