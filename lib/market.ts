@@ -48,7 +48,7 @@ async function getDexMarket(chain: string, address: string): Promise<MarketData>
   const chainId = dexChain[chain];
   if (!chainId) return emptyMarket;
   const response = await fetch(`https://api.dexscreener.com/token-pairs/v1/${chainId}/${encodeURIComponent(address)}`, {
-    headers: { Accept: "application/json" }, signal: AbortSignal.timeout(8000),
+    headers: { Accept: "application/json", "User-Agent": "KOL-Signal-Monitor/1.0" }, signal: AbortSignal.timeout(8000),
   });
   if (!response.ok) return emptyMarket;
   const pair = bestPair(await response.json(), address);

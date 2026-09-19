@@ -19,7 +19,7 @@ export async function getBatchMarketData(tokens: Array<{ chain: string; address:
   const updatedAt = new Date().toISOString();
   const batches: DexPair[][] = await Promise.all([...groups].map(async ([chain, addresses]): Promise<DexPair[]> => {
     try {
-      const response = await fetch(`https://api.dexscreener.com/tokens/v1/${dexChain[chain]}/${addresses.map(encodeURIComponent).join(",")}`, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(8000) });
+      const response = await fetch(`https://api.dexscreener.com/tokens/v1/${dexChain[chain]}/${addresses.map(encodeURIComponent).join(",")}`, { headers: { Accept: "application/json", "User-Agent": "KOL-Signal-Monitor/1.0" }, signal: AbortSignal.timeout(8000) });
       if (!response.ok) return [];
       const payload: unknown = await response.json();
       return Array.isArray(payload) ? payload.map((item): DexPair => ({ ...record(item), _requestedChain: chain })) : [];
