@@ -1,5 +1,7 @@
 import { env } from "cloudflare:workers";
 import { KLINE_META, type KlineInterval } from "@/lib/kline";
+import { parseAveToken, parseGmgnToken, resolveTokenMarket, tokenAddressEquals, type MarketCapKind, type MarketSource, type TokenMarketCandidate } from "@/lib/token-market";
+import { getTokenInfo } from "@/lib/gmgn";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -10,18 +12,27 @@ export type MarketData = {
   description: string;
   price: number;
   marketCap: number;
+  filterMarketCap: number | null;
+  marketCapKind: MarketCapKind;
+  marketCapSource: MarketSource | null;
+  marketDataConflict: boolean;
+  marketCapCandidates: Partial<Record<MarketSource, number>>;
+  selectionReason: string;
   liquidity: number;
-  holders: number;
+  holders: number | null;
+  holderSource: MarketSource | null;
+  holderUpdatedAt: string | null;
   volume24h: number;
   pairAddress: string;
   dexUrl: string;
   createdAt: number;
+  identityVerified: boolean;
 };
 
 export type Candle = { time: number; open: number; high: number; low: number; close: number; volume: number };
 export type KlineResult = { candles: Candle[]; source: string; reason: string };
 
-const emptyMarket: MarketData = { name: "", symbol: "", logo: "", description: "", price: 0, marketCap: 0, liquidity: 0, holders: 0, volume24h: 0, pairAddress: "", dexUrl: "", createdAt: 0 };
+const emptyMarket: MarketData = { name: "", symbol: "", logo: "", description: "", price: 0, marketCap: 0, filterMarketCap: null, marketCapKind: null, marketCapSource: null, marketDataConflict: false, marketCapCandidates: {}, selectionReason: "market cap unavailable", liquidity: 0, holders: null, holderSource: null, holderUpdatedAt: null, volume24h: 0, pairAddress: "", dexUrl: "", createdAt: 0, identityVerified: false };
 const dexChain: Record<string, string> = { sol: "solana", bsc: "bsc", base: "base", robinhood: "robinhood" };
 const geckoChain: Record<string, string> = { sol: "solana", bsc: "bsc", base: "base" };
 const aveChain: Record<string, string> = { sol: "solana", bsc: "bsc", base: "base", robinhood: "robinhood" };
@@ -49,11 +60,11 @@ async function fetchWithRetry(url: string, init: RequestInit, attempts = 2): Pro
   throw error instanceof Error ? error : new Error("行情数据源请求失败");
 }
 
-function bestPair(payload: unknown, address: string) {
+function bestPair(payload: unknown, chain: string, address: string) {
   const pairs = Array.isArray(payload) ? payload.map(record) : [];
   const matching = pairs.filter((pair) => {
     const base = record(pair.baseToken);
-    return string(base.address).toLowerCase() === address.toLowerCase();
+    return tokenAddressEquals(chain, string(base.address), address);
   });
   return (matching.length ? matching : pairs).sort((a, b) => number(record(b.liquidity).usd) - number(record(a.liquidity).usd))[0] || {};
 }
@@ -65,62 +76,40 @@ async function getDexMarket(chain: string, address: string): Promise<MarketData>
     headers: { Accept: "application/json", "User-Agent": "KOL-Signal-Monitor/1.0" }, signal: AbortSignal.timeout(8000),
   });
   if (!response.ok) return emptyMarket;
-  const pair = bestPair(await response.json(), address);
+  const pair = bestPair(await response.json(), chain, address);
   const base = record(pair.baseToken);
   const info = record(pair.info);
   return {
     name: string(base.name), symbol: string(base.symbol), logo: string(info.imageUrl), description: "",
-    price: number(pair.priceUsd), marketCap: number(pair.marketCap) || number(pair.fdv),
-    liquidity: number(record(pair.liquidity).usd), holders: 0, volume24h: number(record(pair.volume).h24),
+    price: number(pair.priceUsd), marketCap: number(pair.fdv), filterMarketCap: null, marketCapKind: number(pair.fdv) > 0 ? "fdv" : null, marketCapSource: number(pair.fdv) > 0 ? "dex" : null, marketDataConflict: false, marketCapCandidates: {}, selectionReason: "pair response provides FDV only",
+    liquidity: number(record(pair.liquidity).usd), holders: null, holderSource: null, holderUpdatedAt: null, volume24h: number(record(pair.volume).h24),
     pairAddress: string(pair.pairAddress), dexUrl: string(pair.url), createdAt: timestamp(pair.pairCreatedAt),
+    identityVerified: tokenAddressEquals(chain, string(base.address), address),
   };
 }
 
-async function getGmgnPublicMarket(chain: string, address: string): Promise<Partial<MarketData>> {
+async function getGmgnPublicMarket(chain: string, address: string): Promise<TokenMarketCandidate | null> {
   try {
     const response = await fetch(`https://gmgn.ai/defi/quotation/v1/tokens/${chain}/${encodeURIComponent(address)}`, {
       headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(7000),
     });
-    if (!response.ok) return {};
-    const root = record(await response.json());
-    const data = record(root.data);
-    const token = record(data.token ?? root.token ?? data);
-    return {
-      name: string(token.name), symbol: string(token.symbol), logo: string(token.logo),
-      description: string(token.description) || string(token.desc) || string(token.bio),
-      price: number(token.price) || number(token.price_usd),
-      marketCap: number(token.market_cap) || number(token.marketcap) || number(token.fdv),
-      liquidity: number(token.liquidity) || number(token.liquidity_usd),
-      holders: number(token.holder_count) || number(token.holders),
-      volume24h: number(token.volume_24h) || number(token.volume24h) || number(token.swap_volume_24h),
-      createdAt: timestamp(token.created_at) || timestamp(token.creation_time) || timestamp(token.launch_time) || timestamp(token.open_timestamp),
-    };
-  } catch { return {}; }
+    if (!response.ok) return null;
+    return parseGmgnToken(await response.json(), chain, address);
+  } catch { return null; }
 }
 
-async function getAveMarket(chain: string, address: string): Promise<Partial<MarketData>> {
+async function getAveMarket(chain: string, address: string): Promise<TokenMarketCandidate | null> {
   const apiKey = runtimeEnv("AVE_API_KEY");
   const chainId = aveChain[chain];
-  if (!apiKey || !chainId) return {};
+  if (!apiKey || !chainId) return null;
   try {
     const tokenId = `${address}-${chainId}`;
     const response = await fetch(`https://prod.ave-api.com/v2/tokens/${encodeURIComponent(tokenId)}`, {
       headers: { Accept: "application/json", "X-API-KEY": apiKey }, signal: AbortSignal.timeout(8000),
     });
-    if (!response.ok) return {};
-    const root = record(await response.json());
-    const data = record(root.data);
-    const token = record(data.token);
-    const pairs = Array.isArray(data.pairs) ? data.pairs.map(record) : [];
-    const volume24h = Math.max(0, ...pairs.map((pair) => number(pair.volume_u)));
-    return {
-      name: string(token.name), symbol: string(token.symbol), logo: string(token.logo_url),
-      description: string(token.description) || string(token.token_introduction) || string(token.introduction) || string(token.project_intro),
-      price: number(token.current_price_usd), marketCap: number(token.market_cap), liquidity: number(token.tvl),
-      holders: number(token.holders), volume24h,
-      createdAt: timestamp(token.created_at) || timestamp(token.launch_at) || timestamp(token.open_timestamp),
-    };
-  } catch { return {}; }
+    if (!response.ok) return null;
+    return parseAveToken(await response.json(), chain, address);
+  } catch { return null; }
 }
 
 export async function getMarketData(chain: string, address: string, options: { useAve?: boolean } = {}): Promise<MarketData> {
@@ -128,19 +117,42 @@ export async function getMarketData(chain: string, address: string, options: { u
   const [dex, gmgn, ave] = await Promise.all([
     getDexMarket(chain, address).catch(() => emptyMarket),
     getGmgnPublicMarket(chain, address),
-    useAve ? getAveMarket(chain, address) : Promise.resolve<Partial<MarketData>>({}),
+    useAve ? getAveMarket(chain, address) : Promise.resolve<TokenMarketCandidate | null>(null),
   ]);
-  const createdTimes = [dex.createdAt, gmgn.createdAt, ave.createdAt].filter((value): value is number => Boolean(value));
+  const dexCandidate: TokenMarketCandidate = { source: "dex", chain, address, pairAddress: dex.pairAddress, name: dex.name, symbol: dex.symbol, logo: dex.logo, description: dex.description, price: dex.price || null, marketCap: null, fdv: dex.marketCap || null, circulatingSupply: null, totalSupply: null, decimals: null, liquidity: dex.liquidity || null, volume24h: dex.volume24h || null, holderCount: null, createdAt: dex.createdAt || null, updatedAt: new Date().toISOString(), identityVerified: dex.identityVerified };
+  const resolved = resolveTokenMarket([ave, gmgn, dexCandidate]);
   return {
     // Token identity follows the contract's primary market metadata. Ave is a
     // fallback here because its token index can occasionally attach an alias
     // from a different project to the same contract (as seen with BONK).
-    name: string(gmgn.name || dex.name || ave.name), symbol: string(gmgn.symbol || dex.symbol || ave.symbol), logo: string(gmgn.logo || ave.logo || dex.logo),
-    description: string(gmgn.description || ave.description), price: number(ave.price || gmgn.price || dex.price),
-    marketCap: number(ave.marketCap || gmgn.marketCap || dex.marketCap), liquidity: number(ave.liquidity || gmgn.liquidity || dex.liquidity),
-    holders: number(ave.holders || gmgn.holders), volume24h: number(ave.volume24h || gmgn.volume24h || dex.volume24h),
-    pairAddress: string(dex.pairAddress), dexUrl: string(dex.dexUrl), createdAt: createdTimes.length ? Math.min(...createdTimes) : 0,
+    name: resolved.name, symbol: resolved.symbol, logo: resolved.logo, description: resolved.description, price: resolved.price ?? 0,
+    marketCap: resolved.marketCap ?? 0, filterMarketCap: resolved.filterMarketCap, marketCapKind: resolved.marketCapKind, marketCapSource: resolved.marketCapSource,
+    marketDataConflict: resolved.marketDataConflict, marketCapCandidates: resolved.marketCapCandidates, selectionReason: resolved.selectionReason,
+    liquidity: resolved.liquidity ?? 0, holders: resolved.holderCount, holderSource: resolved.holderSource, holderUpdatedAt: resolved.holderUpdatedAt,
+    volume24h: resolved.volume24h ?? 0, pairAddress: string(dex.pairAddress || resolved.pairAddress), dexUrl: string(dex.dexUrl), createdAt: resolved.createdAt ?? 0,
+    identityVerified: resolved.identityVerified,
   };
+}
+
+const AUDIT_FIELDS = new Set(["price", "price_usd", "current_price_usd", "market_cap", "marketCap", "token_market_cap", "fdv", "circulating_supply", "circulating_supply_raw", "total_supply", "total_supply_raw", "total", "decimal", "decimals", "liquidity", "liquidity_usd", "tvl", "main_pair_tvl", "volume_24h", "volume24h", "swap_volume_24h", "tx_volume_u_24h", "holders", "holder_count", "holders_count", "chain", "chain_id", "network", "token", "address", "token_address", "contract_address", "pair", "pair_address", "pairAddress", "main_pair", "baseToken"]);
+function auditProjection(value: unknown, depth = 0): unknown {
+  if (depth > 5) return undefined;
+  if (Array.isArray(value)) return value.slice(0, 5).map((item) => auditProjection(item, depth + 1)).filter((item) => item !== undefined);
+  const source = record(value); const result: JsonRecord = {};
+  for (const [key, item] of Object.entries(source)) {
+    if (AUDIT_FIELDS.has(key)) result[key] = typeof item === "object" ? auditProjection(item, depth + 1) : item;
+    else if (["data", "token", "pairs", "pair", "base_token", "token_info"].includes(key) && typeof item === "object") result[key] = auditProjection(item, depth + 1);
+  }
+  return Object.keys(result).length ? result : undefined;
+}
+
+export async function getMarketSourceAudit(chain: string, address: string) {
+  const apiKey = runtimeEnv("AVE_API_KEY"); const chainId = aveChain[chain];
+  const avePromise = apiKey && chainId ? fetch(`https://prod.ave-api.com/v2/tokens/${encodeURIComponent(`${address}-${chainId}`)}`, { headers: { Accept: "application/json", "X-API-KEY": apiKey }, signal: AbortSignal.timeout(8000) }).then(async (response) => ({ status: response.status, body: auditProjection(await response.json()) })).catch((error) => ({ status: 0, error: error instanceof Error ? error.message : "request failed" })) : Promise.resolve({ status: 0, error: "AVE_API_KEY unavailable" });
+  const gmgnPublicPromise = fetch(`https://gmgn.ai/defi/quotation/v1/tokens/${chain}/${encodeURIComponent(address)}`, { headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(8000) }).then(async (response) => ({ status: response.status, body: auditProjection(await response.json()) })).catch((error) => ({ status: 0, error: error instanceof Error ? error.message : "request failed" }));
+  const dexPromise = fetch(`https://api.dexscreener.com/token-pairs/v1/${dexChain[chain]}/${encodeURIComponent(address)}`, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(8000) }).then(async (response) => ({ status: response.status, body: auditProjection(await response.json()) })).catch((error) => ({ status: 0, error: error instanceof Error ? error.message : "request failed" }));
+  const [ave, gmgnPublic, gmgnToken, dex, aggregate] = await Promise.all([avePromise, gmgnPublicPromise, getTokenInfo(chain, address).then((body) => ({ status: 200, body: auditProjection(body) })).catch((error) => ({ status: 0, error: error instanceof Error ? error.message : "request failed" })), dexPromise, getMarketData(chain, address)]);
+  return { chain, address, capturedAt: new Date().toISOString(), aveTokenDetail: ave, aveTokenMarket: ave, gmgnTokenInfo: gmgnToken, gmgnPairInfo: gmgnPublic, pairReference: dex, aggregate };
 }
 
 async function getAveKline(chain: string, address: string, interval: KlineInterval): Promise<Candle[]> {

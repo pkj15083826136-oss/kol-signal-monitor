@@ -14,7 +14,7 @@ async function loadSignals(): Promise<{ signals: SignalRow[]; lastRun: string | 
     if (!db) throw new Error("DB binding 未配置");
     const rows = await db.prepare(`SELECT id, chain, token_address, name, symbol, logo, threshold, holder_count, market_cap,
       liquidity, holders, volume_24h, gmgn_theme, ai_analysis, wallet_names_json, alerted_at
-      FROM signals ORDER BY alerted_at DESC LIMIT 60`).all<Record<string, unknown>>();
+      FROM signals WHERE alert_status != 'suppressed' ORDER BY alerted_at DESC LIMIT 60`).all<Record<string, unknown>>();
     const [run, chainRows, sourceRows, alertRows] = await Promise.all([
       db.prepare("SELECT status, finished_at FROM monitor_runs ORDER BY id DESC LIMIT 1").first<{ status: string; finished_at: string }>(),
       db.prepare("SELECT chain, status, finished_at FROM monitor_runs WHERE chain != '' AND id IN (SELECT MAX(id) FROM monitor_runs WHERE chain != '' GROUP BY chain)").all<Record<string, unknown>>(),

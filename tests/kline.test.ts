@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import { KLINE_INTERVALS, KLINE_META, KlineCache, isKlineInterval } from "@/lib/kline";
 
 describe("Kline intervals and request cache", () => {
-  it("maps all five supported periods to the requested windows", () => {
-    expect(KLINE_INTERVALS).toEqual([5, 15, 60, 240, 1440]);
+  it("maps all six supported periods to the requested windows", () => {
+    expect(KLINE_INTERVALS).toEqual([1, 5, 15, 60, 240, 1440]);
+    expect(KLINE_META[1]).toMatchObject({ label: "1分钟", limit: 480, geckoUnit: "minute", geckoAggregate: 1 });
     expect(KLINE_META[5]).toMatchObject({ label: "5分钟", limit: 120, geckoUnit: "minute", geckoAggregate: 5 });
     expect(KLINE_META[15]).toMatchObject({ label: "15分钟", limit: 120, geckoUnit: "minute", geckoAggregate: 15 });
     expect(KLINE_META[60]).toMatchObject({ label: "1小时", limit: 168, geckoUnit: "hour", geckoAggregate: 1 });
@@ -18,5 +19,7 @@ describe("Kline intervals and request cache", () => {
     cache.set(5, result);
     expect(cache.has(5)).toBe(true);
     expect(cache.get(5)).toBe(result);
+    cache.set(1, result);
+    expect(cache.get(1)).toBe(result);
   });
 });

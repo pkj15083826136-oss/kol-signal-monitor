@@ -25,7 +25,7 @@ export async function GET() {
   if (!db) return Response.json({ error: "DB binding 未配置" }, { status: 500 });
   const rows = await db.prepare(`SELECT id, chain, token_address, name, symbol, logo, threshold, holder_count, market_cap,
     liquidity, holders, volume_24h, gmgn_theme, ai_analysis, wallet_names_json, alerted_at
-    FROM signals ORDER BY alerted_at DESC LIMIT 80`).all<Row>();
+    FROM signals WHERE alert_status != 'suppressed' ORDER BY alerted_at DESC LIMIT 80`).all<Row>();
   const now = Date.now();
   const stale = rows.results.filter((row) => {
     if (Number(row.liquidity) && Number(row.holders) && Number(row.volume_24h)) return false;
@@ -39,7 +39,7 @@ export async function GET() {
     const next = {
       name: market.name || String(row.name), symbol: market.symbol || String(row.symbol), logo: market.logo || String(row.logo || ""),
       marketCap: market.marketCap || Number(row.market_cap), liquidity: market.liquidity || Number(row.liquidity),
-      holders: market.holders || Number(row.holders), volume24h: market.volume24h || Number(row.volume_24h),
+      holders: market.holders ?? Number(row.holders), volume24h: market.volume24h || Number(row.volume_24h),
     };
     Object.assign(row, { name: next.name, symbol: next.symbol, logo: next.logo, market_cap: next.marketCap, liquidity: next.liquidity, holders: next.holders, volume_24h: next.volume24h });
     await db.prepare("UPDATE signals SET name=?, symbol=?, logo=?, market_cap=?, liquidity=?, holders=?, volume_24h=? WHERE id=?")

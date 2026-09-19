@@ -1,9 +1,10 @@
 import type { KlineResult } from "@/lib/market";
 
-export const KLINE_INTERVALS = [5, 15, 60, 240, 1440] as const;
+export const KLINE_INTERVALS = [1, 5, 15, 60, 240, 1440] as const;
 export type KlineInterval = typeof KLINE_INTERVALS[number];
 
 export const KLINE_META: Record<KlineInterval, { label: string; window: string; limit: number; geckoUnit: "minute" | "hour" | "day"; geckoAggregate: number }> = {
+  1: { label: "1分钟", window: "最近约8小时", limit: 480, geckoUnit: "minute", geckoAggregate: 1 },
   5: { label: "5分钟", window: "最近约10小时", limit: 120, geckoUnit: "minute", geckoAggregate: 5 },
   15: { label: "15分钟", window: "最近约30小时", limit: 120, geckoUnit: "minute", geckoAggregate: 15 },
   60: { label: "1小时", window: "最近约7天", limit: 168, geckoUnit: "hour", geckoAggregate: 1 },

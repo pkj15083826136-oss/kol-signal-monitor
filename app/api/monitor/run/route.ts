@@ -4,7 +4,7 @@ import { analyzeNarrative, type NarrativeResult } from "@/lib/xai";
 import { sendWeComAlert } from "@/lib/wecom";
 import { watchedByAddress } from "@/lib/wallets";
 import { getMarketData } from "@/lib/market";
-import { rejectFirstSignal } from "@/lib/signal-policy";
+import { assessFirstSignal } from "@/lib/signal-policy";
 import { isMonitorAuthorized, isMonitorPaused } from "@/lib/monitor-auth";
 import { ALERT_THRESHOLDS, dueAlertThreshold, normalizeAddress } from "@/lib/monitor-policy";
 import { d1Bindings, d1Integer, d1Json, d1Number, d1Text, SIGNAL_MARKET_UPDATE_SQL, signalMarketUpdateBindings } from "@/lib/d1-values";
@@ -76,6 +76,23 @@ async function recordSourceHealth(db: D1Database, source: string, chain: string,
       last_success_at: ok ? now : null, last_failure_at: ok ? null : now, consecutive_failures: ok ? 0 : 1,
       last_latency_ms: d1Integer(latencyMs), last_error: ok ? null : d1Text(error).slice(0, 500),
     }).run();
+}
+
+async function recordMarketReview(db: D1Database, chain: string, token: string, market: Awaited<ReturnType<typeof getMarketData>>, status: "suppressed" | "data_review", reason: string) {
+  await write(db, `INSERT INTO market_reviews
+    (chain, token_address, status, reason, market_cap, market_cap_source, market_data_conflict, source_values_json, holder_count, holder_source, token_created_at, identity_verified, last_checked_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(chain, token_address) DO UPDATE SET status=excluded.status, reason=excluded.reason, market_cap=excluded.market_cap,
+      market_cap_source=excluded.market_cap_source, market_data_conflict=excluded.market_data_conflict, source_values_json=excluded.source_values_json,
+      holder_count=COALESCE(excluded.holder_count, market_reviews.holder_count), holder_source=COALESCE(excluded.holder_source, market_reviews.holder_source),
+      token_created_at=excluded.token_created_at, identity_verified=excluded.identity_verified, last_checked_at=excluded.last_checked_at`, "market_reviews.upsert", {
+    chain: d1Text(chain), token_address: d1Text(token), status, reason,
+    market_cap: market.filterMarketCap, market_cap_source: market.marketCapSource,
+    market_data_conflict: market.marketDataConflict ? 1 : 0, source_values_json: d1Json(market.marketCapCandidates, {}),
+    holder_count: market.holders, holder_source: market.holderSource,
+    token_created_at: market.createdAt ? new Date(market.createdAt).toISOString() : null,
+    identity_verified: market.identityVerified ? 1 : 0, last_checked_at: new Date().toISOString(),
+  }).run();
 }
 
 async function deliverAlerts(db: D1Database) {
@@ -279,11 +296,16 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
       // Ave CU is used once for a token's first signal; routine snapshots use
       // public market feeds so continuous monitoring does not burn the quota.
       const liveMarket = await getMarketData(chain, token, { useAve: !previousSignal }).catch(() => null);
-      if (!previousSignal && rejectFirstSignal({
-        symbol: String(liveMarket?.symbol || ""),
-        marketCap: Number(liveMarket?.marketCap || 0),
-        createdAt: Number(liveMarket?.createdAt || 0),
-      })) continue;
+      if (!previousSignal) {
+        const decision = liveMarket ? assessFirstSignal({
+          symbol: liveMarket.symbol, chain, address: token, marketCap: liveMarket.filterMarketCap,
+          createdAt: liveMarket.createdAt || null, identityVerified: liveMarket.identityVerified, marketDataConflict: liveMarket.marketDataConflict,
+        }) : { status: "data_review" as const, reason: "market_data_unavailable" };
+        if (decision.status !== "allow") {
+          if (liveMarket) await recordMarketReview(db, chain, token, liveMarket, decision.status, decision.reason);
+          continue;
+        }
+      }
       const price = liveMarket?.price || Number(previousSignal?.price || 0);
       await write(db, "INSERT INTO snapshots (chain, token_address, holder_count, total_buy_usd, total_token_amount, market_value, captured_at) VALUES (?, ?, ?, ?, ?, ?, ?)", "snapshots.insert", {
         chain: d1Text(chain), token_address: d1Text(token), holder_count: d1Integer(holderCount), total_buy_usd: d1Integer(aggregate?.total_buy_usd),
@@ -309,10 +331,9 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
 
       const symbol = liveMarket?.symbol || firstString(info, ["symbol", "token_symbol"]) || firstString(tradeToken, ["symbol", "token_symbol"]) || "—";
       const name = liveMarket?.name || firstString(info, ["name", "token_name"]) || firstString(tradeToken, ["name", "token_name"]) || symbol;
-      const totalSupply = firstNumber(tradeToken, ["total_supply", "supply"]);
-      const marketCap = liveMarket?.marketCap || firstNumber(info, ["market_cap", "marketcap", "fdv"]) || currentPrice * totalSupply;
+      const marketCap = liveMarket?.marketCap || firstNumber(info, ["market_cap", "marketcap"]);
       const liquidity = liveMarket?.liquidity || firstNumber(info, ["liquidity", "liquidity_usd"]);
-      const holders = liveMarket?.holders || firstNumber(info, ["holder_count", "holders"]);
+      const holders = liveMarket?.holders ?? firstNumber(info, ["holder_count", "holders"]);
       const volume24h = liveMarket?.volume24h || firstNumber(info, ["volume_24h", "volume24h", "swap_volume_24h"]);
       const launchpad = firstString(tradeToken, ["launchpad"]);
       let gmgnTheme = liveMarket?.description || firstString(info, ["description", "narrative", "theme", "bio"]);

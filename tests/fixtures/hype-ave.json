@@ -1,0 +1,22 @@
+{
+  "data": {
+    "token": {
+      "token": "98sMhvDwXj1RQj5c5Mndm3vPe9cBqPrbLaufMXFNMh5g",
+      "chain": "solana",
+      "symbol": "HYPE",
+      "name": "HYPE",
+      "current_price_usd": "92.14",
+      "market_cap": "65320000",
+      "fdv": "92140000",
+      "circulating_supply": "708936.4",
+      "total": "1000000",
+      "decimal": "6",
+      "tvl": "3380000",
+      "tx_volume_u_24h": "871233",
+      "holders": "51970",
+      "created_at": "1720000000",
+      "main_pair": "HYPE-USDC-PAIR"
+    },
+    "pairs": [{ "pair": "HYPE-USDC-PAIR", "market_cap": "101000", "tvl": "3380000", "volume_u": "871233" }]
+  }
+}

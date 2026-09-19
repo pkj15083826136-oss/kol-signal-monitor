@@ -1,5 +1,6 @@
 import { getBatchMarketData, type BatchMarketItem } from "@/lib/batch-market";
 import { getMarketData } from "@/lib/market";
+import { env } from "cloudflare:workers";
 
 export const dynamic = "force-dynamic";
 
@@ -17,16 +18,17 @@ export async function POST(request: Request) {
     const address = typeof item.address === "string" ? item.address.trim() : "";
     return allowedChains.has(chain) && address.length >= 10 && address.length <= 128 ? [{ chain, address }] : [];
   });
-  const primary = await getBatchMarketData(tokens);
+  const apiKey = (env as unknown as Record<string, unknown>).AVE_API_KEY;
+  const primary = await getBatchMarketData(tokens, typeof apiKey === "string" ? apiKey : "");
   const items = await Promise.all(primary.map(async (item) => {
     const key = `${item.chain}:${item.address.toLowerCase()}`;
-    if (item.source !== "unavailable" && (tokens.length > 1 || item.holders > 0)) { lastAvailable.set(key, item); return item; }
+    if (item.source !== "unavailable" && (tokens.length > 1 || (item.holders ?? 0) > 0)) { lastAvailable.set(key, item); return item; }
     const fallback = await getMarketData(item.chain, item.address).catch(() => null);
-    if (!fallback || !(fallback.price > 0 || fallback.marketCap > 0 || fallback.liquidity > 0 || fallback.holders > 0 || fallback.volume24h > 0)) {
+    if (!fallback || !(fallback.price > 0 || fallback.marketCap > 0 || fallback.liquidity > 0 || (fallback.holders ?? 0) > 0 || fallback.volume24h > 0)) {
       const cached = lastAvailable.get(key);
       return cached ? { ...cached, source: `cached:${cached.source}` } : item;
     }
-    const available = { ...item, price: fallback.price || item.price, marketCap: fallback.marketCap || item.marketCap, liquidity: fallback.liquidity || item.liquidity, holders: fallback.holders, volume24h: fallback.volume24h || item.volume24h, source: item.source === "unavailable" ? "Ave/GMGN fallback" : `${item.source}+holders` };
+    const available = { ...item, price: fallback.price || item.price, marketCap: fallback.marketCap || item.marketCap, marketCapKind: fallback.marketCapKind ?? item.marketCapKind, marketCapSource: fallback.marketCapSource ?? item.marketCapSource, marketDataConflict: fallback.marketDataConflict, marketCapCandidates: fallback.marketCapCandidates, liquidity: fallback.liquidity || item.liquidity, holders: fallback.holders ?? item.holders, holderSource: fallback.holderSource ?? item.holderSource, holderUpdatedAt: fallback.holderUpdatedAt ?? item.holderUpdatedAt, volume24h: fallback.volume24h || item.volume24h, source: item.source === "unavailable" ? "Ave/GMGN fallback" : `${item.source}+holders` };
     lastAvailable.set(key, available);
     return available;
   }));

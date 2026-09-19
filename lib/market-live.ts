@@ -5,8 +5,8 @@ export type LiveMarketItem = BatchMarketItem & { directions: { price: MarketDire
 
 export function pollingDelay(hidden: boolean) { return hidden ? 15_000 : 3_000; }
 export function marketKey(chain: string, address: string) { return `${chain}:${address.toLowerCase()}`; }
-export function direction(previous: number | undefined, next: number): MarketDirection {
-  if (previous === undefined || previous === next) return "same";
+export function direction(previous: number | null | undefined, next: number | null): MarketDirection {
+  if (previous === undefined || previous === null || next === null || previous === next) return "same";
   return next > previous ? "up" : "down";
 }
 export function mergeMarket(previous: BatchMarketItem | undefined, next: BatchMarketItem): LiveMarketItem {

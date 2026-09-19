@@ -106,6 +106,13 @@ export const sourceHealth = sqliteTable("source_health", {
   lastError: text("last_error"),
 }, (table) => [primaryKey({ columns: [table.source, table.chain] })]);
 
+export const marketReviews = sqliteTable("market_reviews", {
+  chain: text("chain").notNull(), tokenAddress: text("token_address").notNull(), status: text("status").notNull(), reason: text("reason").notNull(),
+  marketCap: real("market_cap"), marketCapSource: text("market_cap_source"), marketDataConflict: integer("market_data_conflict").notNull().default(0),
+  sourceValuesJson: text("source_values_json").notNull().default("{}"), holderCount: integer("holder_count"), holderSource: text("holder_source"),
+  tokenCreatedAt: text("token_created_at"), identityVerified: integer("identity_verified").notNull().default(0), lastCheckedAt: text("last_checked_at").notNull(),
+}, (table) => [primaryKey({ columns: [table.chain, table.tokenAddress] })]);
+
 export const userTrades = sqliteTable("user_trades", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   chain: text("chain").notNull(),

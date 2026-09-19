@@ -4,9 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { CandlestickSeries, ColorType, HistogramSeries, createChart, type Time, type UTCTimestamp } from "lightweight-charts";
 import type { Candle, KlineResult } from "@/lib/market";
 import { KLINE_INTERVALS, KLINE_META, KlineCache, type KlineInterval } from "@/lib/kline";
-import { formatShanghaiTime, formatTokenPrice, formatUsdCompact } from "@/lib/market-format";
-
-export type KlineMarketSummary = { price: number; marketCap: number; liquidity: number; volume24h: number; holders: number; updatedAt: string };
 
 function Chart({ data, interval }: { data: Candle[]; interval: KlineInterval }) {
   const target = useRef<HTMLDivElement>(null);
@@ -30,7 +27,7 @@ function Chart({ data, interval }: { data: Candle[]; interval: KlineInterval }) 
   return <div className="mt-4 min-h-[330px] overflow-hidden rounded-xl border border-white/[0.06] bg-[#080c12]" ref={target} role="img" aria-label={`${KLINE_META[interval].label}K线图`}/>;
 }
 
-export default function KlineChart({ chain, address, initialFifteen, market }: { chain: string; address: string; initialFifteen: KlineResult; market: KlineMarketSummary }) {
+export default function KlineChart({ chain, address, initialFifteen }: { chain: string; address: string; initialFifteen: KlineResult }) {
   const cache = useRef(new KlineCache({ 15: initialFifteen }));
   const [interval, setInterval] = useState<KlineInterval>(15);
   const [result, setResult] = useState(initialFifteen);
@@ -57,7 +54,6 @@ export default function KlineChart({ chain, address, initialFifteen, market }: {
   }
 
   return <div data-kline-request-count={requestCount}>
-    <div className="mb-4 break-words border-b border-white/[0.06] pb-3 text-xs leading-5 text-slate-400">价格 {formatTokenPrice(market.price)} · 市值 {formatUsdCompact(market.marketCap)} · 流动性 {formatUsdCompact(market.liquidity)} · 24H {formatUsdCompact(market.volume24h)} · 持币 {market.holders > 0 ? market.holders.toLocaleString() : "--"} · 北京时间 {formatShanghaiTime(market.updatedAt)}</div>
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-semibold">价格K线</h2><p className="mt-1 text-xs text-slate-500">北京时间 · {KLINE_META[interval].label} · {KLINE_META[interval].window}</p></div><div className="flex min-w-0 flex-col gap-2 sm:items-end"><div className="flex max-w-full flex-wrap rounded-lg border border-white/[0.1] bg-[#070b11] p-1" role="group" aria-label="K线周期">{KLINE_INTERVALS.map((value) => <button key={value} type="button" onClick={() => void selectInterval(value)} className={`rounded-md px-2.5 py-1.5 text-xs transition ${interval === value ? "bg-cyan-300/15 text-cyan-200" : "text-slate-400 hover:bg-white/[0.05] hover:text-slate-200"}`}>{KLINE_META[value].label}</button>)}</div><span className="text-xs text-slate-500">{loading ? "正在获取…" : result.source || "暂无数据源"}</span></div></div>
     {loading ? <div className="mt-4 grid h-64 place-items-center rounded-xl border border-white/[0.06] text-sm text-slate-500">加载对应周期数据…</div> : result.candles.length ? <Chart data={result.candles} interval={interval}/> : <div className="mt-4 grid h-64 place-items-center rounded-xl border border-dashed border-white/[0.08] px-6 text-center text-sm leading-6 text-slate-400">{result.reason || "该链暂不支持此周期"}</div>}
   </div>;
