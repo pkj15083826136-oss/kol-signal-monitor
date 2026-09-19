@@ -124,3 +124,5 @@ Sites 环境应优先使用 Sites 技能提供的配置、构建、打包和发�
 - 当前站点只做监控和通知，不包含自动买入、私钥保存或交易签名。
 
 详细接管说明见 `docs/CODEX_HANDOFF.md`，开发约束见 `AGENTS.md`。
+
+钱包连接、动态行情、K 线升级与用户逐笔确认的手动交易范围见 `docs/TRADING_UPGRADE.md`。生产版本尚未开启交易广播，实施时必须按 Phase 0—5 分阶段并使用默认关闭的 Feature Flag。
