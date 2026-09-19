@@ -55,6 +55,11 @@ function authorized(request: Request) {
   return Boolean((expected && authorization === `Bearer ${expected}`) || (gmgnKey && authorization === `Bearer ${gmgnKey}`));
 }
 
+function paused() {
+  const value = (env as unknown as Record<string, unknown>).MONITOR_PAUSED;
+  return typeof value === "string" && value.trim().toLowerCase() === "true";
+}
+
 function nested(record: Record<string, unknown>, key: string) {
   return asRecord(record[key]);
 }
@@ -293,6 +298,7 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
 
 export async function POST(request: Request) {
   if (!authorized(request)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  if (paused()) return Response.json({ error: "Monitor temporarily paused" }, { status: 503, headers: { "Retry-After": "60" } });
   try {
     const requested = new URL(request.url).searchParams.get("chain");
     const selectedChain = CHAINS.includes(requested as typeof CHAINS[number])
