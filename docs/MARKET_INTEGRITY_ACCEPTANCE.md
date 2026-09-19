@@ -56,6 +56,6 @@ Ave 生产响应验证了 12 个真实合约，均通过 token 身份校验并�
 
 - `pnpm lint`：通过。
 - `pnpm exec tsc --noEmit --incremental false`：通过。
-- `pnpm test`：17 个测试文件、62 项测试全部通过。
+- `pnpm test`：17 个测试文件、63 项测试全部通过。
 - `pnpm build`：通过。
 - `pnpm audit --prod`：仍报告 1 high + 3 moderate，全部来自当前关闭状态的钱包依赖树（Reown → Solana/WalletConnect 的 `bigint-buffer`、`uuid`、`decode-uri-component`、`stream-json`）；没有来自本次行情解析代码的新告警。钱包和交易 Feature Flag 均保持关闭，升级需等待上游兼容版本，不能通过强制覆盖破坏 Solana SDK 依赖。

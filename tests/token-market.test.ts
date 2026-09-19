@@ -49,4 +49,7 @@ describe("token-level market normalization", () => {
     expect(tokenAddressEquals("sol", "AbCi", "AbCJ")).toBe(false);
     expect(tokenAddressEquals("base", "0xAbC", "0xabc")).toBe(true);
   });
+  it("does not verify identity when the upstream omits token address or chain", () => {
+    expect(parseGmgnToken({ data: { token: { market_cap: 99 } } }, "base", "0xabc")?.identityVerified).toBe(false);
+  });
 });

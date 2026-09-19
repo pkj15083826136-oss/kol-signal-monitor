@@ -67,9 +67,9 @@ export function tokenAddressEquals(chain: string, left: string, right: string) {
 function identityMatches(token: JsonRecord, chain: string, address: string) {
   const returnedAddress = text(token.token ?? token.address ?? token.token_address ?? token.contract_address);
   const returnedChain = text(token.chain ?? token.chain_id ?? token.network).toLowerCase();
-  const addressOkay = !returnedAddress || tokenAddressEquals(chain, returnedAddress, address);
+  const addressOkay = Boolean(returnedAddress) && tokenAddressEquals(chain, returnedAddress, address);
   const aliases: Record<string, string[]> = { sol: ["sol", "solana"], bsc: ["bsc", "56", "bnb"], base: ["base", "8453"], robinhood: ["robinhood"] };
-  const chainOkay = !returnedChain || (aliases[chain] || [chain]).includes(returnedChain);
+  const chainOkay = Boolean(returnedChain) && (aliases[chain] || [chain]).includes(returnedChain);
   return addressOkay && chainOkay;
 }
 
