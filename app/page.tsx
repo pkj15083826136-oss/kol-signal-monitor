@@ -3,6 +3,7 @@ import Dashboard, { type SignalRow } from "./dashboard";
 import { watchedWallets } from "@/lib/wallets";
 import { verifiedTokenIdentity } from "@/lib/token-identity";
 import { isMatureBaseAsset } from "@/lib/signal-policy";
+import { buildAlertSummary, buildChainHealth, buildSourceHealth, type AlertSummary, type ChainHealth, type SourceHealth } from "@/lib/ops-status";
 
 export const dynamic = "force-dynamic";
 
@@ -11,14 +12,19 @@ const demoSignals: SignalRow[] = [
   { id: -1, chain: "base", tokenAddress: "0x71f…d30c", name: "Based Signal", symbol: "SIGNAL", logo: "", threshold: 18, holderCount: 21, marketCap: 640000, liquidity: 72000, holders: 2840, volume24h: 910000, aiAnalysis: "社区正在传播AI代理与链上信号叙事，买盘扩散速度较快；有效原创内容仍偏少。", gmgnTheme: "AI Agent Meme", alertedAt: new Date(Date.now() - 18 * 60_000).toISOString(), walletNames: ["KOL-A", "KOL-B", "聪明钱包"], demo: true },
 ];
 
-async function loadSignals(): Promise<{ signals: SignalRow[]; lastRun: string | null; monitorOk: boolean }> {
+async function loadSignals(): Promise<{ signals: SignalRow[]; lastRun: string | null; monitorOk: boolean; chainHealth: ChainHealth[]; sourceHealth: SourceHealth[]; alertSummary: AlertSummary }> {
   try {
     const db = env.DB;
     if (!db) throw new Error("DB binding 未配置");
     const rows = await db.prepare(`SELECT id, chain, token_address, name, symbol, logo, threshold, holder_count, market_cap,
       liquidity, holders, volume_24h, gmgn_theme, ai_analysis, wallet_names_json, alerted_at
       FROM signals ORDER BY alerted_at DESC LIMIT 60`).all<Record<string, unknown>>();
-    const run = await db.prepare("SELECT status, finished_at FROM monitor_runs ORDER BY id DESC LIMIT 1").first<{ status: string; finished_at: string }>();
+    const [run, chainRows, sourceRows, alertRows] = await Promise.all([
+      db.prepare("SELECT status, finished_at FROM monitor_runs ORDER BY id DESC LIMIT 1").first<{ status: string; finished_at: string }>(),
+      db.prepare("SELECT chain, status, finished_at FROM monitor_runs WHERE chain != '' AND id IN (SELECT MAX(id) FROM monitor_runs WHERE chain != '' GROUP BY chain)").all<Record<string, unknown>>(),
+      db.prepare("SELECT source, chain, status, last_attempt_at, last_latency_ms FROM source_health ORDER BY source, chain").all<Record<string, unknown>>(),
+      db.prepare("SELECT alert_status, COUNT(*) count FROM signals WHERE alert_status IN ('pending','retry','manual_review') GROUP BY alert_status").all<Record<string, unknown>>(),
+    ]);
     return {
       signals: rows.results.map((row) => {
         const identity = verifiedTokenIdentity(String(row.chain), String(row.token_address), String(row.name), String(row.symbol));
@@ -30,13 +36,14 @@ async function loadSignals(): Promise<{ signals: SignalRow[]; lastRun: string | 
       }); }).filter((signal) => !isMatureBaseAsset(signal.symbol)),
       lastRun: run?.finished_at ?? null,
       monitorOk: run?.status === "success",
+      chainHealth: buildChainHealth(chainRows.results), sourceHealth: buildSourceHealth(sourceRows.results), alertSummary: buildAlertSummary(alertRows.results),
     };
   } catch {
-    return { signals: [], lastRun: null, monitorOk: false };
+    return { signals: [], lastRun: null, monitorOk: false, chainHealth: buildChainHealth([]), sourceHealth: [], alertSummary: buildAlertSummary([]) };
   }
 }
 
 export default async function Home() {
   const result = await loadSignals();
-  return <Dashboard signals={result.signals.length ? result.signals : demoSignals} walletCount={watchedWallets.length} lastRun={result.lastRun} monitorOk={result.monitorOk} demo={!result.signals.length} />;
+  return <Dashboard signals={result.signals.length ? result.signals : demoSignals} walletCount={watchedWallets.length} lastRun={result.lastRun} monitorOk={result.monitorOk} demo={!result.signals.length} chainHealth={result.chainHealth} sourceHealth={result.sourceHealth} alertSummary={result.alertSummary} />;
 }

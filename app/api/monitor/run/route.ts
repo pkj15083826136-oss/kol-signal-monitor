@@ -59,6 +59,25 @@ function write(db: D1Database, sql: string, name: string, fields: Record<string,
   return db.prepare(sql).bind(...d1Bindings(name, fields));
 }
 
+async function recordSourceHealth(db: D1Database, source: string, chain: string, ok: boolean, latencyMs: number, error = "") {
+  const now = new Date().toISOString();
+  await write(db, `INSERT INTO source_health
+    (source, chain, status, last_attempt_at, last_success_at, last_failure_at, consecutive_failures, last_latency_ms, last_error)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(source, chain) DO UPDATE SET
+      status = excluded.status,
+      last_attempt_at = excluded.last_attempt_at,
+      last_success_at = CASE WHEN excluded.status = 'healthy' THEN excluded.last_success_at ELSE source_health.last_success_at END,
+      last_failure_at = CASE WHEN excluded.status = 'failed' THEN excluded.last_failure_at ELSE source_health.last_failure_at END,
+      consecutive_failures = CASE WHEN excluded.status = 'healthy' THEN 0 ELSE source_health.consecutive_failures + 1 END,
+      last_latency_ms = excluded.last_latency_ms,
+      last_error = excluded.last_error`, "source_health.upsert", {
+      source: d1Text(source), chain: d1Text(chain), status: ok ? "healthy" : "failed", last_attempt_at: now,
+      last_success_at: ok ? now : null, last_failure_at: ok ? null : now, consecutive_failures: ok ? 0 : 1,
+      last_latency_ms: d1Integer(latencyMs), last_error: ok ? null : d1Text(error).slice(0, 500),
+    }).run();
+}
+
 async function deliverAlerts(db: D1Database) {
   const store: AlertStore = {
     async listReady(now) {
@@ -157,7 +176,7 @@ async function latestNarrative(db: D1Database, chain: string, token: string): Pr
   };
 }
 
-type SuppliedFeeds = { kol?: unknown; smartmoney?: unknown };
+type SuppliedFeeds = { kol?: unknown; smartmoney?: unknown; health?: Partial<Record<"kol" | "smartmoney", { latencyMs?: number }>> };
 
 async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: SuppliedFeeds) {
   const db = env.DB;
@@ -175,13 +194,19 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
     if (supplied) {
       feeds.push({ chain: selectedChain, kind: "kol", data: supplied.kol ?? { list: [] }, error: "" });
       feeds.push({ chain: selectedChain, kind: "smartmoney", data: supplied.smartmoney ?? { list: [] }, error: "" });
+      await recordSourceHealth(db, "gmgn_kol", selectedChain, true, d1Integer(supplied.health?.kol?.latencyMs));
+      await recordSourceHealth(db, "gmgn_smartmoney", selectedChain, true, d1Integer(supplied.health?.smartmoney?.latencyMs));
     } else {
       for (const chain of [selectedChain]) {
         for (const [kind, getter] of [["kol", getKolTrades], ["smartmoney", getSmartMoneyTrades]] as const) {
+          const feedStarted = Date.now();
           try {
             feeds.push({ chain, kind, data: await getter(chain), error: "" });
+            await recordSourceHealth(db, `gmgn_${kind}`, chain, true, Date.now() - feedStarted);
           } catch (error) {
-            feeds.push({ chain, kind, data: { list: [] }, error: `${kind}:${chain}:${error instanceof Error ? error.message : String(error)}` });
+            const message = error instanceof Error ? error.message : String(error);
+            feeds.push({ chain, kind, data: { list: [] }, error: `${kind}:${chain}:${message}` });
+            await recordSourceHealth(db, `gmgn_${kind}`, chain, false, Date.now() - feedStarted, message);
           }
           await pause(2000);
         }
@@ -328,16 +353,18 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
     }
     const alertDeliveryAfter = await deliverAlerts(db);
     const finishedAt = new Date().toISOString();
-    await write(db, "INSERT INTO monitor_runs (status, new_trades, new_signals, started_at, finished_at) VALUES ('success', ?, ?, ?, ?)", "monitor_runs.success", {
+    await write(db, "INSERT INTO monitor_runs (status, new_trades, new_signals, started_at, finished_at, chain, fetched_rows, matched_rows, feed_errors_json) VALUES ('success', ?, ?, ?, ?, ?, ?, ?, ?)", "monitor_runs.success", {
       new_trades: d1Integer(newTrades), new_signals: d1Integer(newSignals), started_at: d1Text(startedAt), finished_at: d1Text(finishedAt),
+      chain: d1Text(selectedChain), fetched_rows: d1Integer(fetchedRows), matched_rows: d1Integer(matchedRows), feed_errors_json: d1Json(feedErrors, []),
     }).run();
     return { ok: true, selectedChain, fetchedRows, matchedRows, newTrades, newSignals, feedErrors, alertDeliveryBefore, alertDeliveryAfter, startedAt, finishedAt };
   } catch (error) {
     const finishedAt = new Date().toISOString();
     const message = error instanceof Error ? error.message : "未知错误";
     try {
-      await write(db, "INSERT INTO monitor_runs (status, new_trades, new_signals, error, started_at, finished_at) VALUES ('failed', ?, ?, ?, ?, ?)", "monitor_runs.failed", {
+      await write(db, "INSERT INTO monitor_runs (status, new_trades, new_signals, error, started_at, finished_at, chain, fetched_rows, matched_rows, feed_errors_json) VALUES ('failed', ?, ?, ?, ?, ?, ?, ?, ?, ?)", "monitor_runs.failed", {
         new_trades: d1Integer(newTrades), new_signals: d1Integer(newSignals), error: d1Text(message), started_at: d1Text(startedAt), finished_at: d1Text(finishedAt),
+        chain: d1Text(selectedChain), fetched_rows: d1Integer(fetchedRows), matched_rows: d1Integer(matchedRows), feed_errors_json: d1Json(feedErrors, []),
       }).run();
     } catch (recordError) {
       throw new AggregateError([error, recordError], `监控失败且无法写入 monitor_runs：${message}`);

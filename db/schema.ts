@@ -88,4 +88,20 @@ export const monitorRuns = sqliteTable("monitor_runs", {
   error: text("error"),
   startedAt: text("started_at").notNull(),
   finishedAt: text("finished_at").notNull(),
+  chain: text("chain").notNull().default(""),
+  fetchedRows: integer("fetched_rows").notNull().default(0),
+  matchedRows: integer("matched_rows").notNull().default(0),
+  feedErrorsJson: text("feed_errors_json").notNull().default("[]"),
 });
+
+export const sourceHealth = sqliteTable("source_health", {
+  source: text("source").notNull(),
+  chain: text("chain").notNull(),
+  status: text("status").notNull().default("unknown"),
+  lastAttemptAt: text("last_attempt_at").notNull(),
+  lastSuccessAt: text("last_success_at"),
+  lastFailureAt: text("last_failure_at"),
+  consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+  lastLatencyMs: integer("last_latency_ms").notNull().default(0),
+  lastError: text("last_error"),
+}, (table) => [primaryKey({ columns: [table.source, table.chain] })]);

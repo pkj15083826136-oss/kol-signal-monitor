@@ -4,6 +4,7 @@ const requestedChain = process.env.MONITOR_CHAIN;
 const chain = chains.includes(requestedChain) ? requestedChain : chains[Math.floor(Date.now() / 60000) % chains.length];
 
 async function gmgn(kind) {
+  const startedAt = Date.now();
   const query = new URLSearchParams({
     chain,
     limit: "200",
@@ -16,16 +17,20 @@ async function gmgn(kind) {
   });
   const payload = await response.json();
   if (!response.ok || payload.code !== 0) throw new Error(`${kind}: ${payload.message || response.status}`);
-  return payload.data;
+  return { data: payload.data, latencyMs: Date.now() - startedAt };
 }
 
-const kol = await gmgn("kol");
+const kolResult = await gmgn("kol");
 await new Promise((resolve) => setTimeout(resolve, 2000));
-const smartmoney = await gmgn("smartmoney");
+const smartmoneyResult = await gmgn("smartmoney");
 const response = await fetch(`${process.env.SITE_URL.replace(/\/$/, "")}/api/monitor/run?chain=${chain}`, {
   method: "POST",
   headers: { Authorization: `Bearer ${process.env.MONITOR_SECRET}`, "Content-Type": "application/json" },
-  body: JSON.stringify({ feeds: { kol, smartmoney } }),
+  body: JSON.stringify({ feeds: {
+    kol: kolResult.data,
+    smartmoney: smartmoneyResult.data,
+    health: { kol: { latencyMs: kolResult.latencyMs }, smartmoney: { latencyMs: smartmoneyResult.latencyMs } },
+  } }),
   signal: AbortSignal.timeout(70000),
 });
 const text = await response.text();

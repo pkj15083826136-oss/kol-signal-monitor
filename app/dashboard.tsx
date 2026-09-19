@@ -5,6 +5,7 @@ import Image from "next/image";
 import { BellRing, ChevronRight, Clock3, Database, Flame, RadioTower, Search, Sparkles, Users } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import CopyAddress from "./signal/[id]/copy-address";
+import type { AlertSummary, ChainHealth, SourceHealth } from "@/lib/ops-status";
 
 export type SignalRow = {
   id: number; chain: string; tokenAddress: string; name: string; symbol: string; logo: string; threshold: number; holderCount: number;
@@ -20,10 +21,13 @@ function timeAgo(value: string) { const minutes = Math.max(0, Math.floor((Date.n
 function validImage(value: string) { return /^https:\/\//i.test(value); }
 function hotScore(signal: SignalRow) { return signal.holderCount * 100_000_000 + signal.threshold * 1_000_000 + Math.log10(Math.max(1, signal.volume24h)) * 10_000 + Number(new Date(signal.alertedAt)) / 100_000_000; }
 
-export default function Dashboard({ signals: initialSignals, walletCount, lastRun: initialLastRun, monitorOk: initialMonitorOk, demo }: { signals: SignalRow[]; walletCount: number; lastRun: string | null; monitorOk: boolean; demo: boolean }) {
+export default function Dashboard({ signals: initialSignals, walletCount, lastRun: initialLastRun, monitorOk: initialMonitorOk, demo, chainHealth: initialChainHealth, sourceHealth: initialSourceHealth, alertSummary: initialAlertSummary }: { signals: SignalRow[]; walletCount: number; lastRun: string | null; monitorOk: boolean; demo: boolean; chainHealth: ChainHealth[]; sourceHealth: SourceHealth[]; alertSummary: AlertSummary }) {
   const [signals, setSignals] = useState(initialSignals);
   const [lastRun, setLastRun] = useState(initialLastRun);
   const [monitorOk, setMonitorOk] = useState(initialMonitorOk);
+  const [chainHealth, setChainHealth] = useState(initialChainHealth);
+  const [sourceHealth, setSourceHealth] = useState(initialSourceHealth);
+  const [alertSummary, setAlertSummary] = useState(initialAlertSummary);
   const [chain, setChain] = useState("all");
   const [query, setQuery] = useState("");
   const [newIds, setNewIds] = useState<number[]>([]);
@@ -35,11 +39,11 @@ export default function Dashboard({ signals: initialSignals, walletCount, lastRu
       try {
         const response = await fetch("/api/signals", { cache: "no-store" });
         if (!response.ok) return;
-        const payload = await response.json() as { signals: SignalRow[]; lastRun: string | null; monitorOk: boolean };
+        const payload = await response.json() as { signals: SignalRow[]; lastRun: string | null; monitorOk: boolean; chainHealth: ChainHealth[]; sourceHealth: SourceHealth[]; alertSummary: AlertSummary };
         if (!active) return;
         const fresh = payload.signals.filter((signal) => !knownIds.current.has(signal.id)).map((signal) => signal.id);
         payload.signals.forEach((signal) => knownIds.current.add(signal.id));
-        setSignals(payload.signals); setLastRun(payload.lastRun); setMonitorOk(payload.monitorOk);
+        setSignals(payload.signals); setLastRun(payload.lastRun); setMonitorOk(payload.monitorOk); setChainHealth(payload.chainHealth); setSourceHealth(payload.sourceHealth); setAlertSummary(payload.alertSummary);
         if (fresh.length) { setNewIds(fresh); window.setTimeout(() => setNewIds([]), 7000); }
       } catch { /* retain last good view */ }
     }
@@ -56,6 +60,7 @@ export default function Dashboard({ signals: initialSignals, walletCount, lastRu
     <header className="sticky top-0 z-30 border-b border-white/[0.07] bg-[#070a0f]/85 backdrop-blur-xl"><div className="mx-auto flex h-16 max-w-[1500px] items-center justify-between px-4 sm:px-7"><div className="flex items-center gap-3"><div className="grid h-9 w-9 place-items-center rounded-xl border border-cyan-300/20 bg-cyan-300/10 text-cyan-300"><RadioTower size={18} /></div><div><div className="font-semibold tracking-tight">KOL Signal</div><div className="text-[11px] tracking-[0.18em] text-slate-500">SMART FLOW MONITOR</div></div></div><div className="flex items-center gap-3 text-sm"><span className="hidden text-slate-500 sm:inline">15秒自动刷新</span><span className="flex items-center gap-2 rounded-full border border-emerald-300/15 bg-emerald-300/[0.07] px-3 py-1.5 text-emerald-300"><span className={`h-1.5 w-1.5 rounded-full ${monitorOk || demo ? "bg-emerald-300 pulse" : "bg-amber-300"}`} />{demo ? "等待真实信号" : monitorOk ? "运行正常" : "等待调度"}</span></div></div></header>
     <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-7 sm:py-8">
       {demo && <div className="mb-5 rounded-xl border border-amber-300/15 bg-amber-300/[0.06] px-4 py-3 text-sm text-amber-100">当前展示界面示例；监控产生真实信号后会自动替换。</div>}
+      <SystemStatus chains={chainHealth} sources={sourceHealth} alerts={alertSummary}/>
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Metric icon={<Users size={18} />} label="固定监控地址" value={walletCount.toLocaleString()} detail="另含 GMGN 实时 KOL" /><Metric icon={<BellRing size={18} />} label="预警代币" value={uniqueTokens.toString()} detail="去重后的聚集信号" /><Metric icon={<Sparkles size={18} />} label="高质量信号" value={highQuality.toString()} detail="达到 38 人及以上" accent /><Metric icon={<Clock3 size={18} />} label="最近同步" value={lastRun ? timeAgo(lastRun) : "待运行"} detail="15秒刷新页面数据" /></section>
       {!demo && hotSignals.length > 0 && <section className="mt-6 rounded-2xl border border-orange-300/10 bg-gradient-to-r from-orange-300/[0.06] to-[#0b1018] p-4 sm:p-5"><div className="mb-4 flex items-center gap-2"><Flame size={17} className="text-orange-300"/><h2 className="font-semibold">热门信号</h2><span className="text-xs text-slate-600">按KOL聚集、预警级别与成交热度综合排序</span></div><div className="grid gap-3 lg:grid-cols-3">{hotSignals.map((signal) => <HotCard key={signal.id} signal={signal}/>)}</div></section>}
       <section className="mt-6 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0b1018]/90 shadow-2xl shadow-black/20">
@@ -66,6 +71,16 @@ export default function Dashboard({ signals: initialSignals, walletCount, lastRu
       <footer className="flex flex-col gap-2 py-6 text-xs text-slate-600 sm:flex-row sm:items-center sm:justify-between"><span>信号用于研究，不构成投资建议。</span><span>6人首次AI分析 · 38人更新叙事 · 58人后停止预警</span></footer>
     </div>
   </main>;
+}
+
+function SystemStatus({ chains, sources, alerts }: { chains: ChainHealth[]; sources: SourceHealth[]; alerts: AlertSummary }) {
+  const tone: Record<string, string> = { healthy: "bg-emerald-300", degraded: "bg-red-400", stale: "bg-amber-300", unknown: "bg-slate-600" };
+  const sourceHealthy = sources.filter((source) => source.state === "healthy").length;
+  const attention = alerts.pending + alerts.retry + alerts.manualReview;
+  return <section className="mb-4 flex min-w-0 flex-col gap-3 rounded-2xl border border-white/[0.08] bg-[#0b1018]/90 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2"><span className="text-slate-500">四链状态</span>{chains.map((item) => <span key={item.chain} className="inline-flex items-center gap-1.5"><span className={`h-2 w-2 rounded-full ${tone[item.state]}`}/>{chainName[item.chain] || item.chain}</span>)}</div>
+    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500"><span>数据源 {sourceHealthy}/{sources.length || 0} 正常</span><span className={attention ? "text-amber-300" : "text-slate-500"}>通知待处理 {attention}</span></div>
+  </section>;
 }
 
 function Metric({ icon, label, value, detail, accent }: { icon: React.ReactNode; label: string; value: string; detail: string; accent?: boolean }) { return <div className={`rounded-2xl border p-4 ${accent ? "border-cyan-300/15 bg-gradient-to-br from-cyan-300/[0.09] to-[#0b1018]" : "border-white/[0.08] bg-[#0b1018]/90"}`}><div className="flex items-center justify-between"><span className="text-sm text-slate-500">{label}</span><span className={accent ? "text-cyan-300" : "text-slate-600"}>{icon}</span></div><div className="mt-3 text-2xl font-semibold tracking-tight">{value}</div><div className="mt-1 text-xs text-slate-600">{detail}</div></div>; }

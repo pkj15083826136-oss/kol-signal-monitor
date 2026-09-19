@@ -3,6 +3,7 @@ import { getMarketData } from "@/lib/market";
 import { verifiedTokenIdentity } from "@/lib/token-identity";
 import { isMatureBaseAsset } from "@/lib/signal-policy";
 import { d1Bindings, d1Integer, d1Text } from "@/lib/d1-values";
+import { buildAlertSummary, buildChainHealth, buildSourceHealth } from "@/lib/ops-status";
 
 export const dynamic = "force-dynamic";
 
@@ -47,8 +48,16 @@ export async function GET() {
         liquidity: d1Integer(next.liquidity), holders: d1Integer(next.holders), volume_24h: d1Integer(next.volume24h), id: d1Integer(row.id),
       })).run();
   }));
-  const run = await db.prepare("SELECT status, finished_at FROM monitor_runs ORDER BY id DESC LIMIT 1").first<{ status: string; finished_at: string }>();
-  return Response.json({ signals: rows.results.map(mapSignal).filter((signal) => !isMatureBaseAsset(signal.symbol)), lastRun: run?.finished_at ?? null, monitorOk: run?.status === "success" }, {
+  const [run, chainRows, sourceRows, alertRows] = await Promise.all([
+    db.prepare("SELECT status, finished_at FROM monitor_runs ORDER BY id DESC LIMIT 1").first<{ status: string; finished_at: string }>(),
+    db.prepare("SELECT chain, status, finished_at FROM monitor_runs WHERE chain != '' AND id IN (SELECT MAX(id) FROM monitor_runs WHERE chain != '' GROUP BY chain)").all<Row>(),
+    db.prepare("SELECT source, chain, status, last_attempt_at, last_latency_ms FROM source_health ORDER BY source, chain").all<Row>(),
+    db.prepare("SELECT alert_status, COUNT(*) count FROM signals WHERE alert_status IN ('pending','retry','manual_review') GROUP BY alert_status").all<Row>(),
+  ]);
+  return Response.json({
+    signals: rows.results.map(mapSignal).filter((signal) => !isMatureBaseAsset(signal.symbol)), lastRun: run?.finished_at ?? null, monitorOk: run?.status === "success",
+    chainHealth: buildChainHealth(chainRows.results), sourceHealth: buildSourceHealth(sourceRows.results), alertSummary: buildAlertSummary(alertRows.results),
+  }, {
     headers: { "Cache-Control": "no-store, max-age=0" },
   });
 }

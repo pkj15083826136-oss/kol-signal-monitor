@@ -15,6 +15,13 @@
       "when": 1789793052407,
       "tag": "0001_previous_nextwave",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1789800395485,
+      "tag": "0002_naive_solo",
+      "breakpoints": true
     }
   ]
 }
