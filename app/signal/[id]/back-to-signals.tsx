@@ -1,5 +1,3 @@
-"use client";
-
 import { ArrowLeft } from "lucide-react";
 
 export function hasValidListHistory(referrer: string, origin: string, hasSavedContext: boolean, historyLength: number) {
@@ -10,6 +8,5 @@ export function hasValidListHistory(referrer: string, origin: string, hasSavedCo
 }
 
 export default function BackToSignals() {
-  const goToList = () => { window.location.href = new URL("/", window.location.origin).href; };
-  return <button type="button" onClick={goToList} className="inline-flex min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-sm text-slate-400 transition hover:bg-white/[0.04] hover:text-cyan-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/40"><ArrowLeft className="shrink-0" size={16}/>返回预警列表</button>;
+  return <form action="/" method="get"><button type="submit" className="inline-flex min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-sm text-slate-400 transition hover:bg-white/[0.04] hover:text-cyan-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/40"><ArrowLeft className="shrink-0" size={16}/>返回预警列表</button></form>;
 }
