@@ -4,7 +4,7 @@
 
 - GitHub `main` 已同步检查并确认采集器基准为 `a54110ce544cf379ef873744635eb229bba725ca`；Sites 仓库与 GitHub 仓库历史独立，因此按内容核对，未用强制合并覆盖现有 Phase 1—4 代码。`MONITOR_SECRET`、GMGN 鉴权、企业微信、6/18/38/58 规则、钱包/报价/交易开关均未修改。
 - UI 主提交：`bf3e982b4edd3e40e8a473159907002e3ba4d390`；返回导航最终修复：`b251912127b32c45d13dded3f4e47574833d4ce3`。
-- 生产：原项目 `appgprj_6aab63edac688191ba19edf4d8b85582`，Sites version 34，部署成功，URL 仍为 `https://kol-signal-monitor.pkj15083826136.chatgpt.site`，环境变量修订仍为 16，未创建 Site、数据库或 binding。
+- 生产：原项目 `appgprj_6aab63edac688191ba19edf4d8b85582`，Sites version 35（归档源码 `4498fd60373241d6cae25604de3c5a6853028efc`），部署成功，URL 仍为 `https://kol-signal-monitor.pkj15083826136.chatgpt.site`，环境变量修订仍为 16，未创建 Site、数据库或 binding。
 - 列表页已移除价格列，固定为身份、AI 分析、KOL人数、持币地址、市值、流动性、24H交易额、预警时间和详情箭头；`createdAt` 与行情 `updatedAt` 在 API、类型和组件中分离。生产浏览器验证不同记录显示了不同的分钟/小时/天级预警时间，行情轮询不会改写它。
 - 列表每 15 秒增量刷新；后台恢复时立即刷新；筛选、搜索和滚动位置保存在 sessionStorage。详情返回使用原生 GET 表单作为 WebView 可靠回退，回到 `/` 后由列表恢复原状态；有列表来源与直接打开详情两条路径均由生产 E2E 验证。
 - 详情行情卡和 K 线摘要复用同一个实时状态；前台 3 秒、隐藏 15 秒、恢复立即刷新。首次没有真实值时显示 `--/数据源不可用`，超过 30 秒显示“行情延迟”，没有生产 fixture 回填。
