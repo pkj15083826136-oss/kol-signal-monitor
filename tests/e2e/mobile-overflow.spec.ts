@@ -39,6 +39,7 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 390, height: 844 }
     await expect(page.getByRole("heading", { name: signal.symbol })).toBeVisible();
     await expect(page.getByText(signal.tokenAddress)).toBeVisible();
     await expect(page.getByTestId("live-market-grid")).toBeVisible();
+    if (productionEvidence) await expect(page.getByTestId("live-market-grid").locator(":scope > div").first().locator("div").nth(1)).not.toHaveText("--", { timeout: 20_000 });
     overflow = await overflowReport(page);
     expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth);
     expect(overflow.offenders).toEqual([]);

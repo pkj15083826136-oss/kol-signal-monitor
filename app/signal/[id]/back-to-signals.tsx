@@ -14,10 +14,14 @@ export default function BackToSignals() {
   const router = useRouter();
   const goBack = () => {
     const hasContext = Boolean(window.sessionStorage.getItem("kol-signal-list-state"));
+    if (hasContext) {
+      router.push("/");
+      return;
+    }
     if (hasValidListHistory(document.referrer, window.location.origin, hasContext, window.history.length)) {
       const currentPath = window.location.pathname;
-      router.back();
-      window.setTimeout(() => { if (window.location.pathname === currentPath) router.push("/"); }, 600);
+      window.history.back();
+      window.setTimeout(() => { if (window.location.pathname === currentPath) window.location.assign(new URL("/", window.location.origin).href); }, 600);
       return;
     }
     router.push("/");
