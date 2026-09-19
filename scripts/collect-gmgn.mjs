@@ -1,6 +1,6 @@
 const chains = ["sol", "bsc", "base", "robinhood"];
 const requestedChain = process.env.MONITOR_CHAIN;
-const chain = chains.includes(requestedChain) ? requestedChain : chains[Math.floor(Date.now() / 60000) % chains.length];
+const chain = chains.includes(requestedChain) ? requestedChain : chains[Math.floor(Date.now() / 60000) % chains.length];\nconst monitorSecret = process.env.MONITOR_SECRET;\nif (!monitorSecret) throw new Error("MONITOR_SECRET is not configured");
 
 async function gmgn(kind) {
   const query = new URLSearchParams({
@@ -23,7 +23,7 @@ await new Promise((resolve) => setTimeout(resolve, 2000));
 const smartmoney = await gmgn("smartmoney");
 const response = await fetch(`${process.env.SITE_URL.replace(/\/$/, "")}/api/monitor/run?chain=${chain}`, {
   method: "POST",
-  headers: { Authorization: `Bearer ${process.env.GMGN_API_KEY}`, "Content-Type": "application/json" },
+  headers: { Authorization: `Bearer ${monitorSecret}`, "Content-Type": "application/json" },
   body: JSON.stringify({ feeds: { kol, smartmoney } }),
   signal: AbortSignal.timeout(70000),
 });
