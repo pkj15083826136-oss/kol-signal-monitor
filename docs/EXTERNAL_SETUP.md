@@ -26,6 +26,7 @@
 
 ## 最终人工验收
 
+- 监控 Secret 同步：在本地密码管理器生成同一个高强度随机值；先到原 Sites 项目 **Settings → Environment variables** 替换 secret `MONITOR_SECRET`，再到 GitHub 仓库 `pkj15083826136-oss/kol-signal-monitor` 的 **Settings → Secrets and variables → Actions → Repository secrets** 更新同名 `MONITOR_SECRET`。不要在聊天、终端、截图或文档中粘贴该值。两端完成后从 **Actions → KOL Signal Monitor → Run workflow** 手动触发一次，再检查四链各三轮。
 - 企业微信群只发送一条明确标记“系统链路测试”的消息，执行前单独确认。
 - 测试网和主网均由用户逐笔检查钱包弹窗并签名；主网广播开关在验收前保持关闭。
 - GitHub Actions 仓库 secret `MONITOR_SECRET` 必须与现有 Sites secret 同值。当前生产调度请求返回 401，因此四链连续三轮生产验证在该配置修复前无法完成；不得改回 `GMGN_API_KEY`。

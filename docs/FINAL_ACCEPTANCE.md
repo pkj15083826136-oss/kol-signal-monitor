@@ -1,4 +1,4 @@
-# Phase 0.1—4 最终验收记录
+# Phase 0.1—4 最终配置前验收记录（未全部通过）
 
 日期：2026-09-19（Asia/Shanghai）
 
@@ -6,12 +6,14 @@
 
 | 阶段 | 提交 | 结果 |
 | --- | --- | --- |
-| Phase 0.1 | `1c49ccc`（含 `cceef46`、`c4f6e55`） | D1 边界规范化、MONITOR_SECRET 鉴权、企业微信幂等 outbox、测试与受控发布完成 |
+| Phase 0.1 | `1c49ccc`（含 `cceef46`、`c4f6e55`） | D1 边界规范化、MONITOR_SECRET 鉴权、企业微信幂等 outbox 已实现；生产调度鉴权仍待配置闭环 |
 | Phase 0.2 | `2a17db1` | 四链与数据源健康、最近监控时间、通知待处理/失败/人工复核管理视图 |
 | Phase 1 | `0a5f777` | Reown AppKit + Wagmi 2 + Viem + Solana Adapter，只读钱包抽象/UI/mock |
 | Phase 2 | `ceec0a2` | 批量动态行情、3s/15s 调度、北京时间/陈旧状态、Lightweight Charts 5m/15m |
 | Phase 3 | `5bd079b` | Jupiter/0x 只读报价适配、fixture、allowlist 与风险阻止 |
 | Phase 4 | `6ea42c7` | 交易状态机、精确授权、钱包签名/广播接口、receipt、记录与默认关闭的双重主网门禁 |
+
+本轮最终配置前修复提交：`8faabaf`（BONK 身份、真实数据语义、移动端 E2E）、`114d82e`（行情上游标识）、`74d522c`（批量行情真实回退）、`4182007`（K 线重试与生产证据）、`942460f`（降级时保留最后真实报价并标记陈旧）。生产当前为 Sites version 29，对应 `942460f`。
 
 ## 数据库迁移
 
@@ -24,8 +26,9 @@
 
 - `pnpm lint`：通过，0 error / 0 warning。
 - `pnpm exec tsc --noEmit --incremental false`：通过。
-- `pnpm test`：13 个文件、39 项测试全部通过。
+- `pnpm test`：13 个文件、40 项测试全部通过。
 - `pnpm build`：通过；存在 Reown 依赖导致的客户端 chunk 大小提示，不影响构建。
+- `pnpm test:e2e`（生产）：3 项全部通过；覆盖 375×812、390×844 无横向溢出、真实 BONK 行情、前台轮询、隐藏降频/恢复刷新和 5m/15m K 线。
 - 覆盖原监控规则、BONK 身份、成熟资产过滤、独立钱包去重、6/18/38/58 幂等、D1 规范化、企业微信重试、调度鉴权、钱包拒签/切链失败、余额不足、报价过期/篡改、滑点边界、授权/交易/RPC 失败和第三方降级。
 
 ## 依赖审计
@@ -50,17 +53,25 @@
 
 ## 页面验收
 
-- 桌面 1440px：左右约 65/35，交易面板吸顶；`scrollWidth <= innerWidth`。
-- 手机 375px：单列，交易面板位于 K 线之后、趋势/帖子之前；`scrollWidth <= innerWidth`，长地址和错误可换行。
-- 截图：[桌面](/C:/Users/15083/Documents/ChatGPT/链上早期信号/docs/screenshots/phase4-desktop.png)；[手机](/C:/Users/15083/Documents/ChatGPT/链上早期信号/docs/screenshots/phase4-mobile.png)。截图使用本地 fixture 数据，不包含密钥、真实钱包或真实资金。
+- 桌面 1440px：fixture 布局检查；左右约 65/35，交易面板吸顶。
+- 手机生产 375×812 与 390×844：`document.documentElement.scrollWidth <= clientWidth`，关键父容器边界检查无越界；合约行、两列行情卡、简介、AI、K 线、趋势和交易区均在视口内。
+- 生产截图：[375×812](/C:/Users/15083/Documents/ChatGPT/链上早期信号/docs/screenshots/production-mobile-375x812.png)；[390×844](/C:/Users/15083/Documents/ChatGPT/链上早期信号/docs/screenshots/production-mobile-390x844.png)。
+
+## 生产真实性分层
+
+- fixture 验证：Jupiter/0x 报价适配、交易风险与失败分支、桌面布局旧截图；不能作为生产行情或真实交易证据。
+- mock 钱包验证：连接/拒签/切链/余额不足/授权失败/交易失败/RPC 失败状态机；未使用真实钱包或资金。
+- 生产真实 API 验证：BONK mint `DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263`；2026-09-19 21:25:50 北京时间批量 API 返回 price `0.0000029913`、market cap `263217817.04`、liquidity `1514264.45`、24h volume `4747914.73`，来源 `Ave/GMGN fallback`。生产 E2E 验证 5m/15m K 线可见。
+- 尚待外部配置验证：真实 Reown 钱包、Jupiter/0x 真实报价、测试网签名、任何主网广播，以及企业微信真实群消息。
+- 上游瞬时不可用时，首次无真实值显示“暂无数据/数据源不可用”；已有真实值保留原时间戳并标记降级，超过 30 秒显示“数据陈旧”，不回填 fixture。
 
 ## Feature Flag 状态
 
-以下均默认关闭/缺失即关闭：`FEATURE_WALLET_CONNECT`、`FEATURE_LIVE_MARKET`、`FEATURE_TRADE_QUOTE`、`FEATURE_TRADE_TESTNET`、`FEATURE_TRADE_MAINNET` 及四条 `FEATURE_TRADE_MAINNET_{CHAIN}`。主网必须同时满足总开关和对应逐链开关。
+生产当前仅 `FEATURE_LIVE_MARKET=true`。`FEATURE_WALLET_CONNECT`、`FEATURE_TRADE_QUOTE`、`FEATURE_TRADE_TESTNET`、`FEATURE_TRADE_MAINNET` 及四条 `FEATURE_TRADE_MAINNET_{CHAIN}` 均显式为 `false`。主网必须同时满足总开关和对应逐链开关。
 
 ## 尚需外部配置与人工验收
 
-1. 修正 GitHub Actions 仓库 `MONITOR_SECRET`，使其与 Sites 的同名 secret 一致；当前生产调度 401，四链连续三轮成功仍未完成。
+1. 修正 GitHub Actions 仓库 `pkj15083826136-oss/kol-signal-monitor` 的 `MONITOR_SECRET`，使其与 Sites 的同名 secret 一致；当前工具可识别仓库但不能写 Actions Secret 或 dispatch workflow，浏览器也未登录。不得单边轮换 Sites secret。当前生产调度仍为 401，四链每链连续三轮成功尚未完成，整体状态不得判定为全部通过。
 2. 提供 Reown projectId、Jupiter/0x key、四链受限 RPC、聚合器 target/spender/token allowlist 与风险上限；详见 `EXTERNAL_SETUP.md`。
 3. 获得确认后，仅发送一条标记“系统链路测试”的真实企业微信消息。
 4. 使用项目所有者控制的测试钱包和水龙头资产，逐笔验收 connect、switch、quote、reject、approve、swap、timeout、失败和 receipt；系统不得接触私钥/助记词。
