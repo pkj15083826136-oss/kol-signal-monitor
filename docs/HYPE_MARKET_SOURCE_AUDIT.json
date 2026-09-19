@@ -1,0 +1,158 @@
+{
+  "chain": "sol",
+  "address": "98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g",
+  "capturedAt": "2026-09-19T18:37:41.291Z",
+  "aveTokenDetail": {
+    "status": 200,
+    "body": {
+      "data": {
+        "token": {
+          "total": "706586.523416518",
+          "current_price_usd": "92.50134",
+          "tx_volume_u_24h": "18315344.72916",
+          "market_cap": "65360200.24196929313412",
+          "fdv": "65360200.24196929313412",
+          "tvl": "9921945.87991",
+          "main_pair_tvl": "9921945.87991",
+          "token": "98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g",
+          "chain": "solana",
+          "decimal": 9,
+          "holders": 51953,
+          "main_pair": "81GpCm4d13y8TozYtThabuSCLQN2o3bbrvDogXFPn8sA"
+        },
+        "pairs": [
+          {
+            "total_supply": "",
+            "pair": "81GpCm4d13y8TozYtThabuSCLQN2o3bbrvDogXFPn8sA",
+            "chain": "solana",
+            "market_cap": "65360200.24196929313412",
+            "fdv": "65360200.24196929313412"
+          },
+          {
+            "total_supply": "",
+            "pair": "31KrYUDzgEQhEgr1JSNVfHAknWACcF97CtUaU8enKQsy",
+            "chain": "solana",
+            "market_cap": "65273071.05776680229954",
+            "fdv": "65273071.05776680229954"
+          },
+          {
+            "total_supply": "",
+            "pair": "ANCx141SujgVdbKz9NTEH8F38qWsnyyXsVju64aU3qLB",
+            "chain": "solana",
+            "market_cap": "65289569.85308857799484",
+            "fdv": "65289569.85308857799484"
+          },
+          {
+            "total_supply": "",
+            "pair": "6oQ9wVex4mKZti2GsGCfD8FWTMMC9PLQkztRU5cd6MK8",
+            "chain": "solana",
+            "market_cap": "65315063.49485344596428",
+            "fdv": "65315063.49485344596428"
+          },
+          {
+            "total_supply": "",
+            "pair": "DF5SshvX3XTKcvJNxi384FYvfeog7ih9kb89hGbaQBpA",
+            "chain": "solana",
+            "market_cap": "65286369.0161375011683",
+            "fdv": "65286369.0161375011683"
+          }
+        ]
+      }
+    }
+  },
+  "aveTokenMarket": {
+    "status": 200,
+    "body": {
+      "data": {
+        "token": {
+          "total": "706586.523416518",
+          "current_price_usd": "92.50134",
+          "tx_volume_u_24h": "18315344.72916",
+          "market_cap": "65360200.24196929313412",
+          "fdv": "65360200.24196929313412",
+          "tvl": "9921945.87991",
+          "main_pair_tvl": "9921945.87991",
+          "token": "98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g",
+          "chain": "solana",
+          "decimal": 9,
+          "holders": 51953,
+          "main_pair": "81GpCm4d13y8TozYtThabuSCLQN2o3bbrvDogXFPn8sA"
+        },
+        "pairs": [
+          {
+            "total_supply": "",
+            "pair": "81GpCm4d13y8TozYtThabuSCLQN2o3bbrvDogXFPn8sA",
+            "chain": "solana",
+            "market_cap": "65360200.24196929313412",
+            "fdv": "65360200.24196929313412"
+          },
+          {
+            "total_supply": "",
+            "pair": "31KrYUDzgEQhEgr1JSNVfHAknWACcF97CtUaU8enKQsy",
+            "chain": "solana",
+            "market_cap": "65273071.05776680229954",
+            "fdv": "65273071.05776680229954"
+          },
+          {
+            "total_supply": "",
+            "pair": "ANCx141SujgVdbKz9NTEH8F38qWsnyyXsVju64aU3qLB",
+            "chain": "solana",
+            "market_cap": "65289569.85308857799484",
+            "fdv": "65289569.85308857799484"
+          },
+          {
+            "total_supply": "",
+            "pair": "6oQ9wVex4mKZti2GsGCfD8FWTMMC9PLQkztRU5cd6MK8",
+            "chain": "solana",
+            "market_cap": "65315063.49485344596428",
+            "fdv": "65315063.49485344596428"
+          },
+          {
+            "total_supply": "",
+            "pair": "DF5SshvX3XTKcvJNxi384FYvfeog7ih9kb89hGbaQBpA",
+            "chain": "solana",
+            "market_cap": "65286369.0161375011683",
+            "fdv": "65286369.0161375011683"
+          }
+        ]
+      }
+    }
+  },
+  "gmgnTokenInfo": {
+    "status": 0,
+    "error": "IP is temporarily banned due to repeated rate limit violations"
+  },
+  "gmgnPairInfo": {
+    "status": 0,
+    "error": "Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"
+  },
+  "pairReference": {
+    "status": 0,
+    "error": "Unexpected token 'e', \"error code: 1015\n\" is not valid JSON"
+  },
+  "aggregate": {
+    "name": "HYPE",
+    "symbol": "HYPE",
+    "logo": "https://www.iconaves.com/token_icon/solana/98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g.webp",
+    "description": "",
+    "price": 92.50134,
+    "marketCap": 65360200.241969295,
+    "filterMarketCap": 65360200.241969295,
+    "marketCapKind": "market_cap",
+    "marketCapSource": "ave",
+    "marketDataConflict": false,
+    "marketCapCandidates": {
+      "ave": 65360200.241969295
+    },
+    "selectionReason": "trusted token-level market cap",
+    "liquidity": 9921945.87991,
+    "holders": 51953,
+    "holderSource": "ave",
+    "holderUpdatedAt": "2026-09-19T18:37:41.291Z",
+    "volume24h": 18315344.72916,
+    "pairAddress": "81GpCm4d13y8TozYtThabuSCLQN2o3bbrvDogXFPn8sA",
+    "dexUrl": "",
+    "createdAt": 1760118623000,
+    "identityVerified": true
+  }
+}

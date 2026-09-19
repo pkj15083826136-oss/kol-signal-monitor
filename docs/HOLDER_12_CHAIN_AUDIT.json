@@ -1,0 +1,126 @@
+{
+  "capturedAt": "2026-09-19T18:44:44.247Z",
+  "count": 12,
+  "samples": [
+    {
+      "chain": "sol",
+      "address": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+      "walletCount": 29,
+      "symbol": "TOGETHER",
+      "holderCount": 1018259,
+      "holderSource": "ave",
+      "holderUpdatedAt": "2026-09-19T18:44:43.175Z",
+      "identityVerified": true
+    },
+    {
+      "chain": "sol",
+      "address": "3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh",
+      "walletCount": 26,
+      "symbol": "WBTC",
+      "holderCount": 107767,
+      "holderSource": "ave",
+      "holderUpdatedAt": "2026-09-19T18:44:43.164Z",
+      "identityVerified": true
+    },
+    {
+      "chain": "sol",
+      "address": "PEPEqnuuCDbBC89p1u9vpnP1KQ2oj1xTcQBsjt9X55m",
+      "walletCount": 26,
+      "symbol": "PEPE",
+      "holderCount": 13692,
+      "holderSource": "ave",
+      "holderUpdatedAt": "2026-09-19T18:44:43.205Z",
+      "identityVerified": true
+    },
+    {
+      "chain": "bsc",
+      "address": "0xc31ae677e52d8c4d3def6b00affc9c3c19577777",
+      "walletCount": 21,
+      "symbol": "PAID",
+      "holderCount": 1420,
+      "holderSource": "ave",
+      "holderUpdatedAt": "2026-09-19T18:44:43.615Z",
+      "identityVerified": true
+    },
+    {
+      "chain": "bsc",
+      "address": "0xed7e361f70ce5670f92eed4ce0dc520660677777",
+      "walletCount": 18,
+      "symbol": "bBALL",
+      "holderCount": 1770,
+      "holderSource": "ave",
+      "holderUpdatedAt": "2026-09-19T18:44:43.601Z",
+      "identityVerified": true
+    },
+    {
+      "chain": "bsc",
+      "address": "0x250a2718a1a625d1bf4d4794621fd34f1ae2738e",
+      "walletCount": 17,
+      "symbol": "GENIX",
+      "holderCount": 289,
+      "holderSource": "ave",
+      "holderUpdatedAt": "2026-09-19T18:44:43.657Z",
+      "identityVerified": true
+    },
+    {
+      "chain": "base",
+      "address": "0xacfe6019ed1a7dc6f7b508c02d1b04ec88cc21bf",
+      "walletCount": 5,
+      "symbol": "VVV",
+      "holderCount": 150632,
+      "holderSource": "ave",
+      "holderUpdatedAt": "2026-09-19T18:44:43.911Z",
+      "identityVerified": true
+    },
+    {
+      "chain": "base",
+      "address": "0x45e97d3890296ff67af53751a1e92d063393db07",
+      "walletCount": 3,
+      "symbol": "WildBeest",
+      "holderCount": 13,
+      "holderSource": "ave",
+      "holderUpdatedAt": "2026-09-19T18:44:43.912Z",
+      "identityVerified": true
+    },
+    {
+      "chain": "base",
+      "address": "0x9d0e8f5b25384c7310cb8c6ae32c8fbeb645d083",
+      "walletCount": 3,
+      "symbol": "DRV",
+      "holderCount": 38769,
+      "holderSource": "ave",
+      "holderUpdatedAt": "2026-09-19T18:44:43.917Z",
+      "identityVerified": true
+    },
+    {
+      "chain": "robinhood",
+      "address": "0x385307be7df9b45f55f8be72e0cf8b36466813ee",
+      "walletCount": 8,
+      "symbol": "9e9",
+      "holderCount": 1051,
+      "holderSource": "ave",
+      "holderUpdatedAt": "2026-09-19T18:44:44.192Z",
+      "identityVerified": true
+    },
+    {
+      "chain": "robinhood",
+      "address": "0xafa55843fd89cc3c103e26482e96ed15315a4ba3",
+      "walletCount": 7,
+      "symbol": "JERRY",
+      "holderCount": 469,
+      "holderSource": "ave",
+      "holderUpdatedAt": "2026-09-19T18:44:44.247Z",
+      "identityVerified": true
+    },
+    {
+      "chain": "robinhood",
+      "address": "0xb79ec3cdffefe0ec6c806d715e4082d6be4dbf55",
+      "walletCount": 7,
+      "symbol": "PETIX",
+      "holderCount": 715,
+      "holderSource": "ave",
+      "holderUpdatedAt": "2026-09-19T18:44:44.186Z",
+      "identityVerified": true
+    }
+  ]
+}

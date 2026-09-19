@@ -1,7 +1,6 @@
 import { env } from "cloudflare:workers";
 import { KLINE_META, type KlineInterval } from "@/lib/kline";
 import { parseAveToken, parseGmgnToken, resolveTokenMarket, tokenAddressEquals, type MarketCapKind, type MarketSource, type TokenMarketCandidate } from "@/lib/token-market";
-import { getTokenInfo } from "@/lib/gmgn";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -132,27 +131,6 @@ export async function getMarketData(chain: string, address: string, options: { u
     volume24h: resolved.volume24h ?? 0, pairAddress: string(dex.pairAddress || resolved.pairAddress), dexUrl: string(dex.dexUrl), createdAt: resolved.createdAt ?? 0,
     identityVerified: resolved.identityVerified,
   };
-}
-
-const AUDIT_FIELDS = new Set(["price", "price_usd", "current_price_usd", "market_cap", "marketCap", "token_market_cap", "fdv", "circulating_supply", "circulating_supply_raw", "total_supply", "total_supply_raw", "total", "decimal", "decimals", "liquidity", "liquidity_usd", "tvl", "main_pair_tvl", "volume_24h", "volume24h", "swap_volume_24h", "tx_volume_u_24h", "holders", "holder_count", "holders_count", "chain", "chain_id", "network", "token", "address", "token_address", "contract_address", "pair", "pair_address", "pairAddress", "main_pair", "baseToken"]);
-function auditProjection(value: unknown, depth = 0): unknown {
-  if (depth > 5) return undefined;
-  if (Array.isArray(value)) return value.slice(0, 5).map((item) => auditProjection(item, depth + 1)).filter((item) => item !== undefined);
-  const source = record(value); const result: JsonRecord = {};
-  for (const [key, item] of Object.entries(source)) {
-    if (AUDIT_FIELDS.has(key)) result[key] = typeof item === "object" ? auditProjection(item, depth + 1) : item;
-    else if (["data", "token", "pairs", "pair", "base_token", "token_info"].includes(key) && typeof item === "object") result[key] = auditProjection(item, depth + 1);
-  }
-  return Object.keys(result).length ? result : undefined;
-}
-
-export async function getMarketSourceAudit(chain: string, address: string) {
-  const apiKey = runtimeEnv("AVE_API_KEY"); const chainId = aveChain[chain];
-  const avePromise = apiKey && chainId ? fetch(`https://prod.ave-api.com/v2/tokens/${encodeURIComponent(`${address}-${chainId}`)}`, { headers: { Accept: "application/json", "X-API-KEY": apiKey }, signal: AbortSignal.timeout(8000) }).then(async (response) => ({ status: response.status, body: auditProjection(await response.json()) })).catch((error) => ({ status: 0, error: error instanceof Error ? error.message : "request failed" })) : Promise.resolve({ status: 0, error: "AVE_API_KEY unavailable" });
-  const gmgnPublicPromise = fetch(`https://gmgn.ai/defi/quotation/v1/tokens/${chain}/${encodeURIComponent(address)}`, { headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(8000) }).then(async (response) => ({ status: response.status, body: auditProjection(await response.json()) })).catch((error) => ({ status: 0, error: error instanceof Error ? error.message : "request failed" }));
-  const dexPromise = fetch(`https://api.dexscreener.com/token-pairs/v1/${dexChain[chain]}/${encodeURIComponent(address)}`, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(8000) }).then(async (response) => ({ status: response.status, body: auditProjection(await response.json()) })).catch((error) => ({ status: 0, error: error instanceof Error ? error.message : "request failed" }));
-  const [ave, gmgnPublic, gmgnToken, dex, aggregate] = await Promise.all([avePromise, gmgnPublicPromise, getTokenInfo(chain, address).then((body) => ({ status: 200, body: auditProjection(body) })).catch((error) => ({ status: 0, error: error instanceof Error ? error.message : "request failed" })), dexPromise, getMarketData(chain, address)]);
-  return { chain, address, capturedAt: new Date().toISOString(), aveTokenDetail: ave, aveTokenMarket: ave, gmgnTokenInfo: gmgnToken, gmgnPairInfo: gmgnPublic, pairReference: dex, aggregate };
 }
 
 async function getAveKline(chain: string, address: string, interval: KlineInterval): Promise<Candle[]> {
