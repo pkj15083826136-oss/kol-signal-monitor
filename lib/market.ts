@@ -32,12 +32,13 @@ export type MarketData = {
   dexUrl: string;
   createdAt: number;
   identityVerified: boolean;
+  sourceStatus: Partial<Record<MarketSource, "healthy" | "rate_limited" | "degraded" | "unavailable">>;
 };
 
 export type Candle = { time: number; open: number; high: number; low: number; close: number; volume: number };
 export type KlineResult = { candles: Candle[]; source: string; reason: string };
 
-const emptyMarket: MarketData = { name: "", symbol: "", logo: "", description: "", descriptionSource: null, descriptionUpdatedAt: null, price: 0, priceChange24h: null, change24hSource: null, change24hUpdatedAt: null, marketCap: 0, filterMarketCap: null, marketCapKind: null, marketCapSource: null, marketDataConflict: false, marketCapCandidates: {}, selectionReason: "market cap unavailable", liquidity: 0, holders: null, holderSource: null, holderUpdatedAt: null, volume24h: 0, pairAddress: "", dexUrl: "", createdAt: 0, identityVerified: false };
+const emptyMarket: MarketData = { name: "", symbol: "", logo: "", description: "", descriptionSource: null, descriptionUpdatedAt: null, price: 0, priceChange24h: null, change24hSource: null, change24hUpdatedAt: null, marketCap: 0, filterMarketCap: null, marketCapKind: null, marketCapSource: null, marketDataConflict: false, marketCapCandidates: {}, selectionReason: "market cap unavailable", liquidity: 0, holders: null, holderSource: null, holderUpdatedAt: null, volume24h: 0, pairAddress: "", dexUrl: "", createdAt: 0, identityVerified: false, sourceStatus: {} };
 const dexChain: Record<string, string> = { sol: "solana", bsc: "bsc", base: "base", robinhood: "robinhood" };
 const geckoChain: Record<string, string> = { sol: "solana", bsc: "bsc", base: "base" };
 const aveChain: Record<string, string> = { sol: "solana", bsc: "bsc", base: "base", robinhood: "robinhood" };
@@ -90,7 +91,7 @@ async function getDexMarket(chain: string, address: string): Promise<MarketData>
     price: number(pair.priceUsd), priceChange24h: Number.isFinite(Number(record(pair.priceChange).h24)) ? Number(record(pair.priceChange).h24) : null, change24hSource: "dex", change24hUpdatedAt: new Date().toISOString(), marketCap: number(pair.fdv), filterMarketCap: null, marketCapKind: number(pair.fdv) > 0 ? "fdv" : null, marketCapSource: number(pair.fdv) > 0 ? "dex" : null, marketDataConflict: false, marketCapCandidates: {}, selectionReason: "pair response provides FDV only",
     liquidity: number(record(pair.liquidity).usd), holders: null, holderSource: null, holderUpdatedAt: null, volume24h: number(record(pair.volume).h24),
     pairAddress: string(pair.pairAddress), dexUrl: string(pair.url), createdAt: timestamp(pair.pairCreatedAt),
-    identityVerified: tokenAddressEquals(chain, string(base.address), address),
+    identityVerified: tokenAddressEquals(chain, string(base.address), address), sourceStatus: {},
   };
 }
 
@@ -139,6 +140,7 @@ export async function getMarketData(chain: string, address: string, options: { u
     liquidity: resolved.liquidity ?? 0, holders: resolved.holderCount, holderSource: resolved.holderSource, holderUpdatedAt: resolved.holderUpdatedAt,
     volume24h: resolved.volume24h ?? 0, pairAddress: string(dex.pairAddress || resolved.pairAddress), dexUrl: string(dex.dexUrl), createdAt: resolved.createdAt ?? 0,
     identityVerified: resolved.identityVerified,
+    sourceStatus: { ave: ave?.identityVerified ? "healthy" : "unavailable", gmgn: gmgn?.identityVerified ? "healthy" : gmgnBackoff ? "rate_limited" : "unavailable", dex: dex.identityVerified ? "healthy" : "unavailable" },
   };
 }
 

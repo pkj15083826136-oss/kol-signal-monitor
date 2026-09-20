@@ -28,7 +28,7 @@ export default async function SignalDetail({ params }: { params: Promise<{ id: s
   const [posts, snapshots, market, kline15] = await Promise.all([
     db.prepare("SELECT * FROM hot_posts WHERE signal_id = ? ORDER BY rank").bind(Number(id)).all<Record<string, unknown>>(),
     db.prepare("SELECT holder_count, total_token_amount, market_value, captured_at FROM snapshots WHERE chain = ? AND token_address = ? ORDER BY captured_at LIMIT 120").bind(chain, address).all<Record<string, unknown>>(),
-    getMarketData(chain, address).catch(() => ({ name:"",symbol:"",logo:"",description:"",descriptionSource:null,descriptionUpdatedAt:null,price:0,priceChange24h:null,change24hSource:null,change24hUpdatedAt:null,marketCap:0,filterMarketCap:null,marketCapKind:null,marketCapSource:null,marketDataConflict:false,marketCapCandidates:{},selectionReason:"market cap unavailable",liquidity:0,holders:null,holderSource:null,holderUpdatedAt:null,volume24h:0,pairAddress:"",dexUrl:"",createdAt:0,identityVerified:false })),
+    getMarketData(chain, address).catch(() => ({ name:"",symbol:"",logo:"",description:"",descriptionSource:null,descriptionUpdatedAt:null,price:0,priceChange24h:null,change24hSource:null,change24hUpdatedAt:null,marketCap:0,filterMarketCap:null,marketCapKind:null,marketCapSource:null,marketDataConflict:false,marketCapCandidates:{},selectionReason:"market cap unavailable",liquidity:0,holders:null,holderSource:null,holderUpdatedAt:null,volume24h:0,pairAddress:"",dexUrl:"",createdAt:0,identityVerified:false,sourceStatus:{} })),
     getKlineData(chain, address, 15).catch(() => ({ candles: [], source: "", reason: "15分钟行情数据源请求失败，请稍后刷新重试。" })),
   ]);
   const livePrice = market.price;

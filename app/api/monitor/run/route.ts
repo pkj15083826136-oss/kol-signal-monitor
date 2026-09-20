@@ -59,10 +59,10 @@ function write(db: D1Database, sql: string, name: string, fields: Record<string,
   return db.prepare(sql).bind(...d1Bindings(name, fields));
 }
 
-async function recordSourceHealth(db: D1Database, source: string, chain: string, ok: boolean, latencyMs: number, error = "") {
+async function recordSourceHealth(db: D1Database, source: string, chain: string, ok: boolean, latencyMs: number, error = "", forcedStatus?: "healthy" | "rate_limited" | "degraded" | "unavailable") {
   const now = new Date().toISOString();
   const rateLimited = /429|rate.?limit|too many/i.test(error);
-  const status = ok ? "healthy" : rateLimited ? "rate_limited" : "degraded";
+  const status = forcedStatus ?? (ok ? "healthy" : rateLimited ? "rate_limited" : "degraded");
   const nextRetryAt = ok ? null : new Date(Date.now() + (rateLimited ? 15 * 60_000 : 60_000)).toISOString();
   await write(db, `INSERT INTO source_health
     (source, chain, status, last_attempt_at, last_success_at, last_failure_at, consecutive_failures, last_latency_ms, last_error, next_retry_at, impact)
@@ -302,6 +302,11 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
       // Ave CU is used once for a token's first signal; routine snapshots use
       // public market feeds so continuous monitoring does not burn the quota.
       const liveMarket = await getMarketData(chain, token, { useAve: !previousSignal }).catch(() => null);
+      if (liveMarket) {
+        for (const [source, status] of Object.entries(liveMarket.sourceStatus)) {
+          await recordSourceHealth(db, `market_${source}`, chain, status === "healthy", 0, status === "healthy" ? "" : status, status);
+        }
+      }
       if (!previousSignal) {
         const decision = liveMarket ? assessFirstSignal({
           symbol: liveMarket.symbol, chain, address: token, marketCap: liveMarket.filterMarketCap,
