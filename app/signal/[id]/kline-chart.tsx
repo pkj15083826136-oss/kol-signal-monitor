@@ -58,9 +58,9 @@ export default function KlineChart({ chain, address, initialFifteen }: { chain: 
     fullController.current?.abort();
     setInterval(next);
     const cached = cache.get(chain, address, next);
-    if (cached?.isHistoryLoaded) {
+    if (cached?.lastFullFetchAt) {
       setResult({ candles: cached.mergedBars, source: cached.source, reason: cached.reason });
-      setHistoryLoaded(true);
+      setHistoryLoaded(cached.isHistoryLoaded);
       setRealtimeInterrupted(false);
       return;
     }

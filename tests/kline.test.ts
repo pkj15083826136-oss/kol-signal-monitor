@@ -26,6 +26,8 @@ describe("Kline intervals and request cache", () => {
     expect(cache.get("sol", "minta", 5)).toBeUndefined();
     expect(cache.get("sol", "MintA", 15)).toBeUndefined();
     expect(cache.get("base", "MintA", 5)).toBeUndefined();
+    cache.setHistory("bsc", "0xabc", 15, { candles: [], source: "", reason: "暂未收录" }, "2026-09-20T00:00:00.000Z");
+    expect(cache.get("bsc", "0xabc", 15)).toMatchObject({ isHistoryLoaded: false, lastFullFetchAt: "2026-09-20T00:00:00.000Z", reason: "暂未收录" });
   });
   it("updates the current candle and appends a new period without clearing history", () => {
     const current = { candles: [{ time: 1, open: 1, high: 2, low: 1, close: 1.5, volume: 2 }], source: "Ave", reason: "" };
