@@ -3,6 +3,7 @@ export type AlertStatus = "pending" | "retry" | "sending" | "sent" | "manual_rev
 export type PendingAlert = { id: number; payload: Record<string, unknown>; attempts: number };
 
 export interface AlertStore {
+  quarantineStale?(cutoff: string, now: string): Promise<number>;
   listReady(now: string): Promise<PendingAlert[]>;
   claim(id: number, now: string): Promise<boolean>;
   markSent(id: number, now: string): Promise<void>;
@@ -24,6 +25,10 @@ export async function deliverReadyAlerts(
   now = new Date().toISOString(),
 ) {
   const result = { sent: 0, retried: 0, manualReview: 0 };
+  if (store.quarantineStale) {
+    const cutoff = new Date(Date.parse(now) - 10 * 60_000).toISOString();
+    result.manualReview += await store.quarantineStale(cutoff, now);
+  }
   for (const alert of await store.listReady(now)) {
     if (!await store.claim(alert.id, now)) continue;
     try {

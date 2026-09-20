@@ -101,6 +101,15 @@ async function recordMarketReview(db: D1Database, chain: string, token: string, 
 
 async function deliverAlerts(db: D1Database) {
   const store: AlertStore = {
+    async quarantineStale(cutoff, now) {
+      const result = await write(db, `UPDATE signals SET alert_status = 'manual_review',
+        alert_error = 'delivery outcome unknown after stale sending claim; automatic retry suppressed to prevent duplicate',
+        alert_next_attempt_at = NULL, alert_last_attempt_at = COALESCE(alert_last_attempt_at, ?)
+        WHERE alert_status = 'sending' AND (alert_last_attempt_at IS NULL OR alert_last_attempt_at <= ?)`, "alerts.quarantine_stale", {
+        now: d1Text(now), cutoff: d1Text(cutoff),
+      }).run();
+      return Number(result.meta.changes || 0);
+    },
     async listReady(now) {
       const rows = await db.prepare(`SELECT id, alert_payload_json, alert_attempts FROM signals
         WHERE alert_status IN ('pending','retry') AND (alert_next_attempt_at IS NULL OR alert_next_attempt_at <= ?)

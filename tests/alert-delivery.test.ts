@@ -28,3 +28,23 @@ it("quarantines ambiguous delivery instead of risking a duplicate", async () => 
   await deliverReadyAlerts(store, async () => { throw new AlertDeliveryError("timeout", false); });
   expect(status).toBe("manual_review");
 });
+
+it("quarantines a stale sending claim without attempting a duplicate delivery", async () => {
+  let status = "sending";
+  let sendCalls = 0;
+  const store: AlertStore = {
+    async quarantineStale(cutoff) {
+      expect(cutoff).toBe("2026-09-19T00:50:00.000Z");
+      status = "manual_review";
+      return 1;
+    },
+    async listReady() { return []; },
+    async claim() { return false; },
+    async markSent() {},
+    async markFailed() {},
+  };
+  const result = await deliverReadyAlerts(store, async () => { sendCalls += 1; }, "2026-09-19T01:00:00.000Z");
+  expect(status).toBe("manual_review");
+  expect(sendCalls).toBe(0);
+  expect(result.manualReview).toBe(1);
+});
