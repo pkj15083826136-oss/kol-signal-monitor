@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatShanghaiDateTime, formatSignalAge, formatTokenPrice, formatUsdCompact } from "@/lib/market-format";
+import { formatShanghaiDateTime, formatSignalAge, formatTokenPrice, formatUsdCompact, tokenPriceScale } from "@/lib/market-format";
 
 describe("market and signal formatting", () => {
   const now = Date.parse("2026-09-20T04:00:00.000Z");
@@ -18,7 +18,17 @@ describe("market and signal formatting", () => {
     expect(formatSignalAge(createdAt, now)).toBe(formatSignalAge(createdAt, now));
   });
   it("formats small prices and compact market metrics without fake zeroes", () => {
-    expect(formatTokenPrice(0.00002246)).toBe("$0.00002246");
+    expect([
+      formatTokenPrice(1234.56),
+      formatTokenPrice(92.1549),
+      formatTokenPrice(0.2946),
+      formatTokenPrice(0.0021481),
+      formatTokenPrice(0.00002246),
+      formatTokenPrice(0.00000029913),
+      formatTokenPrice(0),
+      formatTokenPrice(null),
+    ]).toEqual(["$1,234.56", "$92.1549", "$0.2946", "$0.0021481", "$0.00002246", "$0.00000029913", "$0", "--"]);
+    expect(tokenPriceScale(0.0021481)).toEqual({ precision: 8, minMove: 0.00000001 });
     expect(formatUsdCompact(21_920)).toBe("$21.92K");
     expect(formatUsdCompact(1_230_000)).toBe("$1.23M");
     expect(formatUsdCompact(0)).toBe("--");

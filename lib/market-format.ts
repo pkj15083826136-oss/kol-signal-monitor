@@ -11,10 +11,38 @@ export function formatUsdCompact(value: number | undefined): string {
   }).format(value);
 }
 
-export function formatTokenPrice(value: number | undefined): string {
-  if (!Number.isFinite(value) || !value || value <= 0) return "--";
-  if (value >= 1) return `$${value.toLocaleString("en-US", { maximumFractionDigits: 4 })}`;
-  return `$${value.toLocaleString("en-US", { maximumSignificantDigits: 6, useGrouping: false })}`;
+export function tokenPricePrecision(value: number | null | undefined): number {
+  if (!Number.isFinite(value) || value === null || value === undefined || value <= 0) return 2;
+  if (value >= 1_000) return 2;
+  if (value >= 1) return 4;
+  if (value >= 0.01) return 6;
+  if (value >= 0.0001) return 8;
+  return 12;
+}
+
+export function tokenPriceScale(value: number | null | undefined) {
+  const precision = tokenPricePrecision(value);
+  return { precision, minMove: 10 ** -precision };
+}
+
+function formatTokenNumber(value: number, grouping: boolean): string {
+  return value.toLocaleString("en-US", {
+    useGrouping: grouping,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: tokenPricePrecision(value),
+  });
+}
+
+export function formatTokenPrice(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value) || value < 0) return "--";
+  if (value === 0) return "$0";
+  return `$${formatTokenNumber(value, value >= 1_000)}`;
+}
+
+export function formatTokenQuantity(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value) || value < 0) return "--";
+  if (value === 0) return "0";
+  return formatTokenNumber(value, value >= 1_000);
 }
 
 export function formatShanghaiDateTime(value: string | number | Date): string {

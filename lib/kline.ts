@@ -16,6 +16,13 @@ export function isKlineInterval(value: number): value is KlineInterval {
   return KLINE_INTERVALS.includes(value as KlineInterval);
 }
 
+export function normalizeKlineLimit(value: string | null): number | undefined {
+  if (value === null) return undefined;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return Number.NaN;
+  return Math.max(2, Math.min(500, Math.round(parsed)));
+}
+
 export function klinePollingDelay(interval: KlineInterval, hidden: boolean) {
   if (hidden) return 60_000;
   if (interval === 1) return 7_500;
@@ -30,17 +37,66 @@ export function mergeCandles(current: KlineResult, incremental: KlineResult): Kl
   return { candles: [...merged.values()].sort((a, b) => a.time - b.time), source: incremental.source || current.source, reason: "" };
 }
 
-export class KlineCache {
-  private readonly values = new Map<KlineInterval, KlineResult>();
+export type KlineSeriesState = {
+  historyBars: KlineResult["candles"];
+  liveTailBars: KlineResult["candles"];
+  mergedBars: KlineResult["candles"];
+  source: string;
+  reason: string;
+  lastFullFetchAt: string | null;
+  lastIncrementalFetchAt: string | null;
+  isHistoryLoaded: boolean;
+  isLive: boolean;
+};
 
-  constructor(initial?: Partial<Record<KlineInterval, KlineResult>>) {
-    for (const interval of KLINE_INTERVALS) {
-      const value = initial?.[interval];
-      if (value) this.values.set(interval, value);
-    }
+export function klineCacheKey(chain: string, tokenAddress: string, interval: KlineInterval) {
+  const address = chain.toLowerCase() === "sol" ? tokenAddress : tokenAddress.toLowerCase();
+  return `${chain.toLowerCase()}:${address}:${interval}`;
+}
+
+export class KlineCache {
+  private readonly values = new Map<string, KlineSeriesState>();
+
+  get(chain: string, address: string, interval: KlineInterval) {
+    return this.values.get(klineCacheKey(chain, address, interval));
   }
 
-  get(interval: KlineInterval) { return this.values.get(interval); }
-  set(interval: KlineInterval, value: KlineResult) { this.values.set(interval, value); }
-  has(interval: KlineInterval) { return this.values.has(interval); }
+  setHistory(chain: string, address: string, interval: KlineInterval, result: KlineResult, fetchedAt = new Date().toISOString()) {
+    const key = klineCacheKey(chain, address, interval);
+    const previous = this.values.get(key);
+    const merged = previous?.liveTailBars.length
+      ? mergeCandles(result, { candles: previous.liveTailBars, source: previous.source, reason: "" })
+      : result;
+    const next: KlineSeriesState = {
+      historyBars: result.candles,
+      liveTailBars: previous?.liveTailBars || [],
+      mergedBars: merged.candles,
+      source: result.source,
+      reason: result.reason,
+      lastFullFetchAt: fetchedAt,
+      lastIncrementalFetchAt: previous?.lastIncrementalFetchAt || null,
+      isHistoryLoaded: result.candles.length > 0,
+      isLive: previous?.isLive || false,
+    };
+    this.values.set(key, next);
+    return next;
+  }
+
+  mergeIncremental(chain: string, address: string, interval: KlineInterval, result: KlineResult, fetchedAt = new Date().toISOString()) {
+    const key = klineCacheKey(chain, address, interval);
+    const previous = this.values.get(key);
+    if (!previous?.isHistoryLoaded || !result.candles.length) return previous;
+    const merged = mergeCandles({ candles: previous.mergedBars, source: previous.source, reason: previous.reason }, result);
+    const next: KlineSeriesState = {
+      ...previous,
+      liveTailBars: result.candles,
+      mergedBars: merged.candles,
+      source: merged.source,
+      reason: merged.reason,
+      lastIncrementalFetchAt: fetchedAt,
+      isLive: true,
+    };
+    this.values.set(key, next);
+    return next;
+  }
 }

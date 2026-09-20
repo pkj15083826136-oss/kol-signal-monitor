@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const PRODUCTION_MARKET_MINT = "XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W";
+const WOJAK_MINT = "8J69rbLTzWWgUJziFY8jeu5tDwEPBwUz4pKBMr5rpump";
 const evidenceLabel = process.env.E2E_EVIDENCE_LABEL || "local";
 const productionEvidence = process.env.E2E_REQUIRE_REAL_MARKET === "1";
 
@@ -104,4 +105,27 @@ test("production SPYx/SPN500 uses real market data and refreshes at 3 seconds", 
   expect(batchRequests).toBeGreaterThanOrEqual(3);
   await expect(page.getByText("数据源不可用")).toHaveCount(0);
   await expect(page.getByText("Solana", { exact: true })).toBeVisible();
+});
+
+test("production WOJAK loads full history before incremental updates and preserves it for two minutes", async ({ page }) => {
+  test.skip(!productionEvidence, "production-only evidence");
+  test.setTimeout(180_000);
+  const response = await page.request.get("/api/signals");
+  const payload = await response.json() as { signals: Signal[] };
+  const signal = payload.signals.find((item) => item.tokenAddress === WOJAK_MINT);
+  expect(signal, "production data must include WOJAK").toBeTruthy();
+  await page.goto(`/signal/${signal!.id}`, { waitUntil: "domcontentloaded" });
+  const counts: Record<string, number> = {};
+  for (const label of ["1分钟", "5分钟", "15分钟", "1小时", "4小时", "1天"]) {
+    await page.getByRole("button", { name: label, exact: true }).click();
+    await expect.poll(async () => Number(await page.locator("[data-kline-bar-count]").getAttribute("data-kline-bar-count")), { timeout: 20_000 }).toBeGreaterThan(5);
+    counts[label] = Number(await page.locator("[data-kline-bar-count]").getAttribute("data-kline-bar-count"));
+  }
+  await page.getByRole("button", { name: "1分钟", exact: true }).click();
+  const before = Number(await page.locator("[data-kline-bar-count]").getAttribute("data-kline-bar-count"));
+  await page.waitForTimeout(120_000);
+  const after = Number(await page.locator("[data-kline-bar-count]").getAttribute("data-kline-bar-count"));
+  expect(after).toBeGreaterThanOrEqual(before);
+  expect(counts["1分钟"]).toBeGreaterThan(5);
+  await page.screenshot({ path: `docs/screenshots/${evidenceLabel}-wojak-small-price-axis.png`, fullPage: true });
 });
