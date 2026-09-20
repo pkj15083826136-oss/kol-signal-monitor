@@ -127,7 +127,10 @@ GitHub Actions `main` 已增加“采集失败必须使 workflow 失败”及“
 - 原 Site：`https://kol-signal-monitor.pkj15083826136.chatgpt.site`，未更换项目、D1 或 binding。
 - v41 / `21675f34b95381f8b70a20900ad52165fe69d564`：统一 MarketSnapshot、字段级 last-known-good、K线增量、24H涨跌、历史异常迁移。
 - v42 / `b21996a6489f62ccc439c83af5db0f796e6f7b49`：GMGN 从按代币退避改为数据源全局指数退避。
-- v43 / `837fadf15b7289580de5643f5f88cdf7e51e06be`：市场源健康状态写入；最终聚合修正将随下一版本发布。
+- v43 / `837fadf15b7289580de5643f5f88cdf7e51e06be`：市场源健康状态写入。
+- v44 / `c58445b3275db642e2092954f0045139f627261b`：每轮按来源聚合健康状态，避免后续局部响应覆盖健康结果。
+- v45 / `9070479007732dc10f05791a3e2905a9fdca9094`：每条链每轮最多执行一次真实 Ave token-detail 健康采样；已发布到原 Site，部署成功。
+- v46 / `6ed2f84f3d774535d9d3c66e9095cf11efe133b5`：陈旧 `sending` 通知转入 `manual_review`，发送结果未知时禁止自动重发；已发布到原 Site，部署成功。
 - SPYx/SPN500 根因精确定位在 `lib/batch-market.ts`、`app/api/market/batch/route.ts` 与 `lib/market-live.ts`：Ave `/v2/tokens/price` 是局部行情，旧代码把缺失市值强制成0并整体替换SSR token-detail；Dex pair价格也可在局部刷新中进入同一对象。现在必须通过chain+完整tokenAddress身份校验，Solana大小写敏感；pairAddress不能充当tokenAddress；按字段合并并保留独立来源/时间戳；请求序号、AbortController和receivedAt阻止旧响应回写。
 
 ## SPYx/SPN500 生产20次采样
@@ -171,34 +174,43 @@ GitHub Actions `main` 已增加“采集失败必须使 workflow 失败”及“
 
 ## 四链连续生产轮次
 
-GitHub Actions Run #26（`35480156770`）使用提交`a54110c`的采集器调用当前生产Site。以下每链三轮连续success；时间为北京时间，feed_errors均为空，market_conflict均为0。
+GitHub Actions Run #27（`35482576316`，GitHub提交`b4db2cf`）调用生产v46。以下为v46发布后每链三轮连续success；时间为北京时间，feed_errors均为空，market_conflict均为0。
 
 | 链 | run id | 开始—结束 | 抓取 | 匹配 | 新交易 | 新信号 | data_review | 错误 |
 |---|---:|---|---:|---:|---:|---:|---:|---|
-| Solana | 890 | 09:09:19—09:09:51 | 200 | 86 | 37 | 0 | 0 | 无 |
-| Solana | 894 | 09:14:05—09:14:41 | 200 | 87 | 43 | 0 | 0 | 无 |
-| Solana | 898 | 09:18:53—09:19:34 | 200 | 85 | 28 | 0 | 0 | 无 |
-| BSC | 887 | 09:06:01—09:06:26 | 200 | 104 | 18 | 0 | 0 | 无 |
-| BSC | 891 | 09:10:42—09:11:11 | 200 | 104 | 29 | 0 | 0 | 无 |
-| BSC | 895 | 09:15:32—09:15:59 | 200 | 107 | 22 | 0 | 0 | 无 |
-| Base | 888 | 09:07:17—09:07:27 | 121 | 116 | 0 | 0 | 0 | 无 |
-| Base | 892 | 09:12:01—09:12:11 | 121 | 116 | 0 | 0 | 0 | 无 |
-| Base | 896 | 09:16:50—09:16:59 | 121 | 116 | 0 | 0 | 0 | 无 |
-| Robinhood | 889 | 09:08:18—09:08:28 | 200 | 100 | 1 | 0 | 0 | 无 |
-| Robinhood | 893 | 09:13:02—09:13:14 | 200 | 100 | 7 | 0 | 0 | 无 |
-| Robinhood | 897 | 09:17:51—09:18:02 | 200 | 100 | 0 | 0 | 0 | 无 |
+| Solana | 939 | 10:06:48—10:07:09 | 200 | 72 | 58 | 0 | 1 | 无 |
+| Solana | 943 | 10:10:58—10:11:17 | 200 | 79 | 36 | 0 | 1 | 无 |
+| Solana | 947 | 10:15:08—10:15:29 | 200 | 83 | 41 | 0 | 0 | 无 |
+| BSC | 936 | 10:03:50—10:04:05 | 200 | 106 | 22 | 0 | 0 | 无 |
+| BSC | 940 | 10:08:01—10:08:16 | 200 | 103 | 18 | 0 | 0 | 无 |
+| BSC | 944 | 10:12:07—10:12:25 | 200 | 113 | 36 | 0 | 0 | 无 |
+| Base | 937 | 10:04:56—10:05:01 | 120 | 115 | 0 | 0 | 0 | 无 |
+| Base | 941 | 10:09:06—10:09:11 | 120 | 115 | 0 | 0 | 0 | 无 |
+| Base | 945 | 10:13:15—10:13:19 | 120 | 115 | 0 | 0 | 0 | 无 |
+| Robinhood | 938 | 10:05:51—10:05:57 | 200 | 101 | 1 | 0 | 0 | 无 |
+| Robinhood | 942 | 10:10:01—10:10:07 | 200 | 101 | 3 | 0 | 0 | 无 |
+| Robinhood | 946 | 10:14:10—10:14:17 | 200 | 100 | 9 | 0 | 0 | 无 |
 
-12轮均无HTTP 401、D1_TYPE_ERROR、undefined bind或重复阶段预警。企业微信仅处理真实业务信号；没有发送测试消息，所有已完成记录attempts=1，未发现同阶段重复发送。
+12轮均无HTTP 401、D1_TYPE_ERROR、undefined bind或重复阶段预警。企业微信仅处理真实业务信号；没有发送测试消息，未发现同阶段重复发送。历史`id=51`的未知投递结果已隔离为manual_review，未自动重发。
+
+该窗口中Ave在Solana、BSC、Robinhood的真实token采样均为healthy；Base本窗口没有达到门禁或48小时活跃条件的token，因此没有生成伪造的market-source健康记录。Base的采集源仍为healthy，且前述3个真实Base合约的API抽样通过。GMGN采集feed四链healthy；GMGN市场metadata继续rate_limited，系统使用全局退避，Ave/Dex继续工作。
 
 ## 最终验证与截图
 
-- lint：0 error / 0 warning；TypeScript通过；Vitest 18文件/71项全部通过；build通过。
+- lint：0 error / 0 warning；TypeScript通过；Vitest 18文件/72项全部通过；build通过。
 - 生产Playwright：4/4通过，覆盖375×812、390×844、1440×1000无横向溢出、返回按钮、六周期缓存、SPYx真实API以及前台3秒刷新。
 - `pnpm audit --prod`仍为1 high + 3 moderate，全部在Feature Flag关闭的钱包依赖链；详情和暂缓原因沿用上方依赖审计，未为消除告警强制跨主版本override。
-- 截图：`docs/screenshots/production-v43-list-desktop-1440x1000.png`、`production-v43-list-mobile-390x844.png`、`production-v43-detail-desktop-1440x1000.png`、`production-v43-detail-mobile-390x844.png`。
+- 截图：`docs/screenshots/production-v46-list-desktop-1440x1000.png`、`production-v46-list-mobile-390x844.png`、`production-v46-detail-desktop-1440x1000.png`、`production-v46-detail-mobile-390x844.png`。
+- v46生产Playwright再次4/4通过；SPN500详情显示真实价格、市值、holders和24H涨跌，桌面与390px手机截图均无重复行情摘要或横向溢出。
 - 交易相关Feature Flag继续全部false；未连接真实钱包、未真实报价、未测试网/主网签名或广播。
+
+## 通知投递与调度收尾
+
+- 生产复核发现历史信号 `id=51` 自 2026-09-19 起停留在 `sending`，且没有 `alert_sent_at`；由于无法证明企业微信是否已经接收，v46 将超过10分钟的陈旧发送claim隔离为 `manual_review`，错误原因为“delivery outcome unknown…automatic retry suppressed”。该处理没有发消息，也不会自动重发造成重复预警。
+- GitHub Actions 每小时任务原为75次轮询并设置90分钟超时，按生产实际单轮耗时存在超时或与下次调度重叠的风险。GitHub `main` 提交 `b4db2cf14804446efeaabd4536d7022069793ea8` 将单次窗口改为40次（每链10次）、60分钟超时，保留失败累计和连续3次失败提前停止；未更改鉴权、数据源或6/18/38/58规则。
+- GitHub Actions Run #27（`35482576316`）于北京时间09:54:08开始、10:35:19结束，40/40轮成功，最终结论`success`；末四轮run 963–966仍全部success。v46发布后45分钟Worker错误日志没有非客户端取消类错误。
 
 ## 尚存上游限制
 
 - GMGN市场metadata当前为`rate_limited`，全局指数退避并带抖动；Ave和Dex继续提供行情。当前20个简介样本无可核验文本，因此简介功能代码完成但真实内容命中率尚不能验收为通过。
-- 生产data_review在本次观察窗仅出现少量，现有market_reviews也不足20条data_review，不能伪造“随机抽查20条”。当前新增计数可持续积累，达到20条后再做人工抽样；已有门禁原因仍区分market_cap_unknown、creation_time_unknown、identity unverified和conflict。
+- 生产`market_reviews`当前共11条，其中data_review仅2条（`token_identity_unverified` 1、`market_cap_unknown` 1），其余9条为成熟资产抑制；样本不足20，不能伪造“随机抽查20条”。当前两条均是关键字段无法验证后的预期门禁，不是已知字段解析错误。达到20条后再做人工抽样；门禁原因仍区分market_cap_unknown、creation_time_unknown、identity unverified和conflict。
