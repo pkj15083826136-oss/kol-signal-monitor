@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, LoaderCircle, RefreshCcw, Unplug, WalletCards } from "lucide-react";
+import { Check, ChevronDown, Copy, LoaderCircle, RefreshCcw, Unplug, WalletCards } from "lucide-react";
 import { useWalletRuntime } from "@/components/wallet/wallet-root";
 import { WALLET_CHAIN_META, type WalletChain } from "@/lib/wallet/state";
 
@@ -14,8 +14,17 @@ function shortAddress(value: string) {
 export default function WalletButton() {
   const wallet = useWalletRuntime();
   const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const busy = wallet.phase === "connecting" || wallet.phase === "restoring" || wallet.phase === "switching";
+  const menuId = "wallet-account-menu";
+
+  async function copyAddress() {
+    if (!wallet.address) return;
+    await navigator.clipboard.writeText(wallet.address);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  }
 
   useEffect(() => {
     if (!expanded) return;
@@ -42,16 +51,17 @@ export default function WalletButton() {
   }
 
   return <div ref={root} className="relative min-w-0">
-    <button type="button" className="wallet-trigger max-w-[230px]" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded} aria-haspopup="menu">
+    <button type="button" className="wallet-trigger max-w-[230px]" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded} aria-controls={menuId} aria-haspopup="menu">
       {busy ? <LoaderCircle className="shrink-0 animate-spin" size={15}/> : <WalletCards className="shrink-0 text-cyan-300" size={15}/>}
       <span className="truncate">{shortAddress(wallet.address)}</span>
       <span className="hidden shrink-0 rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] text-slate-300 sm:inline">{wallet.chain ? WALLET_CHAIN_META[wallet.chain].name : "未知网络"}</span>
       <ChevronDown className="shrink-0" size={13}/>
     </button>
-    {expanded ? <div className="wallet-menu" role="menu">
+    {expanded ? <div id={menuId} className="wallet-menu" role="menu">
       <div className="border-b border-white/10 px-3 py-2.5">
         <div className="flex min-w-0 items-center justify-between gap-2"><span className="truncate text-sm text-white">{wallet.walletName || "已连接钱包"}</span><span className="shrink-0 text-[11px] text-emerald-300">已连接</span></div>
-        <button type="button" onClick={() => void wallet.openAccount()} className="mt-1 max-w-full truncate font-mono text-xs text-slate-400 hover:text-slate-200">{wallet.address}</button>
+        <div className="mt-1 flex min-w-0 items-center gap-2"><button type="button" onClick={() => void wallet.openAccount()} className="min-w-0 flex-1 truncate text-left font-mono text-xs text-slate-400 hover:text-slate-200">{wallet.address}</button><button type="button" onClick={() => void copyAddress()} className="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-white/10 text-slate-400 hover:text-cyan-200" aria-label="复制钱包地址" title={copied ? "已复制" : "复制地址"}>{copied ? <Check size={12}/> : <Copy size={12}/>}</button></div>
+        <div className="mt-1 text-xs text-slate-400">当前网络：{wallet.chain ? WALLET_CHAIN_META[wallet.chain].name : "未知网络"}</div>
         <div className="mt-1 text-xs text-slate-400">{wallet.balanceLoading ? "余额加载中（不影响连接）" : wallet.balance || "余额暂不可用"}</div>
       </div>
       <div className="p-2">

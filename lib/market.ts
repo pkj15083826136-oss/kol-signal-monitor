@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { KLINE_META, type KlineInterval } from "@/lib/kline";
+import { KLINE_META, klineUnavailableReason, type KlineInterval } from "@/lib/kline";
 import { parseAveToken, parseGmgnToken, resolveTokenMarket, tokenAddressEquals, type MarketCapKind, type MarketSource, type TokenMarketCandidate } from "@/lib/token-market";
 import { canRequest, nextBackoff, type BackoffState } from "@/lib/source-backoff";
 
@@ -42,6 +42,7 @@ const emptyMarket: MarketData = { name: "", symbol: "", logo: "", description: "
 const dexChain: Record<string, string> = { sol: "solana", bsc: "bsc", base: "base", robinhood: "robinhood" };
 const geckoChain: Record<string, string> = { sol: "solana", bsc: "bsc", base: "base" };
 const aveChain: Record<string, string> = { sol: "solana", bsc: "bsc", base: "base", robinhood: "robinhood" };
+const geckoPoolCache = new Map<string, { address: string; expiresAt: number }>();
 let gmgnBackoff: BackoffState | undefined;
 
 function record(value: unknown): JsonRecord { return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {}; }
@@ -162,14 +163,20 @@ async function getAveKline(chain: string, address: string, interval: KlineInterv
 async function getGeckoKline(chain: string, address: string, interval: KlineInterval, limit: number): Promise<Candle[]> {
   const network = geckoChain[chain];
   if (!network) return [];
-  const poolsResponse = await fetchWithRetry(`https://api.geckoterminal.com/api/v2/networks/${network}/tokens/${encodeURIComponent(address)}/pools?page=1`, {
-    headers: { Accept: "application/json;version=20230302", "User-Agent": "KOL-Signal-Monitor/1.0" }, signal: AbortSignal.timeout(8000),
-  });
-  if (!poolsResponse.ok) return [];
-  const pools = record(await poolsResponse.json()).data;
-  const rows = Array.isArray(pools) ? pools.map(record) : [];
-  rows.sort((a, b) => number(record(b.attributes).reserve_in_usd) - number(record(a.attributes).reserve_in_usd));
-  const poolAddress = string(record(rows[0]?.attributes).address);
+  const key = `${chain}:${chain === "sol" ? address : address.toLowerCase()}`;
+  const cached = geckoPoolCache.get(key);
+  let poolAddress = cached && cached.expiresAt > Date.now() ? cached.address : "";
+  if (!poolAddress) {
+    const poolsResponse = await fetchWithRetry(`https://api.geckoterminal.com/api/v2/networks/${network}/tokens/${encodeURIComponent(address)}/pools?page=1`, {
+      headers: { Accept: "application/json;version=20230302", "User-Agent": "KOL-Signal-Monitor/1.0" }, signal: AbortSignal.timeout(8000),
+    });
+    if (!poolsResponse.ok) return [];
+    const pools = record(await poolsResponse.json()).data;
+    const rows = Array.isArray(pools) ? pools.map(record) : [];
+    rows.sort((a, b) => number(record(b.attributes).reserve_in_usd) - number(record(a.attributes).reserve_in_usd));
+    poolAddress = string(record(rows[0]?.attributes).address);
+    if (poolAddress) geckoPoolCache.set(key, { address: poolAddress, expiresAt: Date.now() + 5 * 60_000 });
+  }
   if (!poolAddress) return [];
   const meta = KLINE_META[interval];
   const candleResponse = await fetchWithRetry(`https://api.geckoterminal.com/api/v2/networks/${network}/pools/${encodeURIComponent(poolAddress)}/ohlcv/${meta.geckoUnit}?aggregate=${meta.geckoAggregate}&limit=${limit}&currency=usd`, {
@@ -183,7 +190,6 @@ async function getGeckoKline(chain: string, address: string, interval: KlineInte
 }
 
 export async function getKlineData(chain: string, address: string, interval: KlineInterval = 15, requestedLimit?: number): Promise<KlineResult> {
-  const aveKey = runtimeEnv("AVE_API_KEY");
   const limit = Math.max(2, Math.min(requestedLimit ?? KLINE_META[interval].limit, KLINE_META[interval].limit));
   const ave = await getAveKline(chain, address, interval, limit).catch(() => []);
   if (ave.length) return { candles: ave, source: `Ave.ai · ${KLINE_META[interval].label}`, reason: "" };
@@ -191,6 +197,6 @@ export async function getKlineData(chain: string, address: string, interval: Kli
   if (gecko.length) return { candles: gecko, source: `GeckoTerminal · ${KLINE_META[interval].label}`, reason: "" };
   return {
     candles: [], source: "",
-    reason: aveKey ? `该链暂不支持此周期，或数据源尚未返回该代币的${KLINE_META[interval].label}K线。` : `该链暂不支持此周期，或当前公共数据源未返回${KLINE_META[interval].label}K线。`,
+    reason: klineUnavailableReason(chain, interval),
   };
 }

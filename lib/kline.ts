@@ -3,6 +3,12 @@ import type { KlineResult } from "@/lib/market";
 export const KLINE_INTERVALS = [1, 5, 15, 60, 240, 1440] as const;
 export type KlineInterval = typeof KLINE_INTERVALS[number];
 
+export function klineUnavailableReason(chain: string, interval: KlineInterval) {
+  return ["sol", "bsc", "base", "robinhood"].includes(chain)
+    ? `行情数据源暂未收录该代币的${KLINE_META[interval].label}K线，或上游暂时不可用。`
+    : `该链暂不支持${KLINE_META[interval].label}K线。`;
+}
+
 export const KLINE_META: Record<KlineInterval, { label: string; window: string; limit: number; geckoUnit: "minute" | "hour" | "day"; geckoAggregate: number }> = {
   1: { label: "1分钟", window: "最近约8小时", limit: 480, geckoUnit: "minute", geckoAggregate: 1 },
   5: { label: "5分钟", window: "最近约10小时", limit: 120, geckoUnit: "minute", geckoAggregate: 5 },

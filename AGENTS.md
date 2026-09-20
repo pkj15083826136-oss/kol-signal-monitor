@@ -13,3 +13,7 @@
 11. Before publishing, build successfully and verify at least the list API, one detail page, signal-policy boundary cases, and worker error logs.
 12. Keep the existing public audience unless the owner asks to change it.
 13. Before changing wallet, quote, approval, swap, or transaction-history behavior, read `docs/TRADING_UPGRADE.md` and preserve its phased rollout and safety requirements.
+14. For production defect fixes, first reproduce the defect and add a failing regression test, then make the smallest scoped patch. Do not refactor or reformat unrelated modules.
+15. Preserve permanent contract coverage for chain/address identity, token-versus-pair boundaries, field-level partial snapshot merging, last-known-good retention, and market/Kline independence from wallet state.
+16. Keep desktop and mobile visual baselines for wallet, list, and detail views. Before publishing, run the production smoke matrix with wallet disconnected, EVM connected, Solana connected, and at least one real token from each supported chain.
+17. A passing unit suite does not replace real production-data verification. Block publishing when any previously accepted behavior regresses, and list the allowed scope, changed files, intentionally untouched critical modules, old-feature regressions, and new acceptance results in the final report.

@@ -83,7 +83,7 @@ test("desktop screenshots, relative signal time, navigation fallback and cached 
   for (const label of ["1分钟", "5分钟", "1小时", "4小时", "1天"]) {
     await direct.getByRole("button", { name: label, exact: true }).click();
     await expect.poll(() => direct.locator("[data-kline-request-count]").getAttribute("data-kline-request-count")).not.toBeNull();
-    await expect(direct.getByText(/该链暂不支持此周期|GeckoTerminal|Ave\.ai/).last()).toBeVisible();
+    await expect(direct.getByText(/暂未收录|暂不支持|GeckoTerminal|Ave\.ai/).last()).toBeVisible();
   }
   expect(fullKlineRequests).toBe(5);
   await direct.getByRole("button", { name: "1分钟", exact: true }).click();

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { direction, isMarketStale, marketKey, mergeMarket, mergeSnapshot, pollingDelay, retainLastAvailable } from "@/lib/market-live";
+import { direction, isMarketStale, marketKey, mergeMarket, mergeSnapshot, persistedMarketSnapshot, pollingDelay, retainLastAvailable } from "@/lib/market-live";
 import type { BatchMarketItem } from "@/lib/batch-market";
 
 const item: BatchMarketItem = { chain: "base", address: "0x1234567890", tokenAddress: "0x1234567890", pairAddress: "0xpair", symbol: "TEST", decimals: 18, price: 1, priceChange24h: 2, marketCap: 10, liquidity: 5, holders: 100, volume24h: 8, updatedAt: "2026-09-19T00:00:00.000Z", sourceTimestamp: "2026-09-19T00:00:00.000Z", receivedAt: "2026-09-19T00:00:01.000Z", source: "Ave.ai", identityVerified: true, fieldSources: { price: "ave", priceChange24h: "ave", marketCap: "ave", liquidity: "ave", holders: "ave", volume24h: "ave" }, fieldUpdatedAt: { price: "2026-09-19T00:00:00.000Z", priceChange24h: "2026-09-19T00:00:00.000Z", marketCap: "2026-09-19T00:00:00.000Z", liquidity: "2026-09-19T00:00:00.000Z", holders: "2026-09-19T00:00:00.000Z", volume24h: "2026-09-19T00:00:00.000Z" }, staleFields: [], conflictFields: [] };
@@ -28,6 +28,16 @@ describe("live market behavior", () => {
     const partial = { ...item, price: 1.1, marketCap: 0, holders: null, receivedAt: "2026-09-19T00:00:02.000Z", fieldSources: { price: "ave" }, fieldUpdatedAt: { price: "2026-09-19T00:00:02.000Z" } };
     const result = mergeSnapshot(item, partial);
     expect(result).toMatchObject({ price: 1.1, marketCap: 10, holders: 100 });
+  });
+  it("retains a persisted last-known-good snapshot when an upstream refresh is unavailable", () => {
+    const persisted = persistedMarketSnapshot({ chain: "bsc", address: "0x1111111111111111111111111111111111111111", price: 0.25, marketCap: 158_535, liquidity: 73_359, volume24h: 34_197, holders: 522, capturedAt: "2026-09-20T08:00:00.000Z" });
+    const unavailable = { ...persisted, price: 0, marketCap: 0, liquidity: 0, volume24h: 0, holders: null, source: "unavailable", updatedAt: "2026-09-20T09:00:00.000Z", receivedAt: "2026-09-20T09:00:00.000Z", fieldSources: {}, fieldUpdatedAt: {} };
+    const merged = mergeSnapshot(persisted, unavailable);
+    expect(merged).toMatchObject({ price: 0.25, marketCap: 158_535, liquidity: 73_359, volume24h: 34_197, holders: 522, source: "cached:signal", updatedAt: "2026-09-20T08:00:00.000Z" });
+  });
+  it("keeps market identity independent from the connected wallet chain", () => {
+    const tokenKey = marketKey("bsc", "0x1111111111111111111111111111111111111111");
+    for (const walletChain of [null, "bsc", "sol", "base", "robinhood"]) expect(`${walletChain}:${tokenKey}`.endsWith(tokenKey)).toBe(true);
   });
   it("does not allow older, wrong-token, pair-address or wrong-case Solana responses to overwrite", () => {
     expect(mergeSnapshot(item, { ...item, price: 99, receivedAt: "2026-09-18T23:59:00.000Z" }).price).toBe(1);

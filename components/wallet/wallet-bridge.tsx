@@ -21,6 +21,7 @@ export default function WalletBridge({ children }: { children: React.ReactNode }
   const [balance, setBalance] = useState<string | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [restoreTimedOut, setRestoreTimedOut] = useState(false);
+  const [locallyDisconnected, setLocallyDisconnected] = useState(false);
   const gate = useRef(new WalletOperationGate());
   const operationRef = useRef<{ kind: "connect" | "switch"; target: WalletChain | null; generation: number } | null>(null);
   const balanceGeneration = useRef(0);
@@ -28,7 +29,8 @@ export default function WalletBridge({ children }: { children: React.ReactNode }
   const chain = chainFromNetwork(network.chainId, network.caipNetworkId);
   const namespace: WalletNamespace = chain ? namespaceFor(chain) : solana.isConnected && !evm.isConnected ? "solana" : "eip155";
   const account = namespace === "solana" ? solana : evm;
-  const address = validWalletAddress(namespace, account.address) ? account.address! : null;
+  const sessionAddress = validWalletAddress(namespace, account.address) ? account.address! : null;
+  const address = locallyDisconnected ? null : sessionAddress;
   const connected = Boolean(address);
   const { walletInfo } = useWalletInfo(namespace);
   const accountStatus = connected ? "connected" : operation ? account.status : evm.status === "reconnecting" || solana.status === "reconnecting" ? "reconnecting" : account.status;
@@ -44,9 +46,10 @@ export default function WalletBridge({ children }: { children: React.ReactNode }
     queueMicrotask(() => {
       if (!active) return;
       operationRef.current = null; setOperation(null); setError(null); setRestoreTimedOut(false); modalWasOpen.current = false;
+      void close().catch(() => {});
     });
     return () => { active = false; };
-  }, [connected, address, chain]);
+  }, [connected, address, chain, close]);
 
   useEffect(() => {
     if (!operation || connected) return;
@@ -95,6 +98,7 @@ export default function WalletBridge({ children }: { children: React.ReactNode }
   }, []);
 
   const connect = useCallback(async (target?: WalletChain) => {
+    setLocallyDisconnected(false);
     const generation = begin("connect", target || null);
     if (generation === null) return;
     try { await withWalletTimeout(open({ view: "Connect", namespace: target ? namespaceFor(target) : undefined })); }
@@ -129,13 +133,15 @@ export default function WalletBridge({ children }: { children: React.ReactNode }
   }, []);
 
   const disconnect = useCallback(async () => {
-    gate.current.cancel(); operationRef.current = null; balanceGeneration.current += 1; setOperation(null); setError(null); setBalance(null); setBalanceLoading(false);
+    gate.current.cancel(); operationRef.current = null; balanceGeneration.current += 1; setLocallyDisconnected(true); setOperation(null); setError(null); setBalance(null); setBalanceLoading(false);
+    await close().catch(() => {});
     await Promise.allSettled([appKitDisconnect({ namespace: "eip155" }), appKitDisconnect({ namespace: "solana" })]);
     try { localStorage.setItem("kol-wallet-sync", String(Date.now())); } catch {}
-  }, [appKitDisconnect]);
+  }, [appKitDisconnect, close]);
 
   const reconnect = useCallback(async (target?: WalletChain) => {
     await disconnect();
+    setLocallyDisconnected(false);
     const generation = begin("connect", target || null);
     if (generation === null) return;
     try { await withWalletTimeout(open({ view: "Connect", namespace: target ? namespaceFor(target) : undefined })); }

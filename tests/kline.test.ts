@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { KLINE_INTERVALS, KLINE_META, KlineCache, isKlineInterval, klineCacheKey, klinePollingDelay, mergeCandles, normalizeKlineLimit } from "@/lib/kline";
+import { KLINE_INTERVALS, KLINE_META, KlineCache, isKlineInterval, klineCacheKey, klinePollingDelay, klineUnavailableReason, mergeCandles, normalizeKlineLimit } from "@/lib/kline";
 
 describe("Kline intervals and request cache", () => {
+  it("distinguishes an unindexed BSC token from an unsupported chain", () => {
+    expect(klineUnavailableReason("bsc", 15)).toContain("暂未收录");
+    expect(klineUnavailableReason("bsc", 15)).not.toContain("该链暂不支持");
+    expect(klineUnavailableReason("unknown", 15)).toContain("该链暂不支持");
+  });
   it("maps all six supported periods to the requested windows", () => {
     expect(KLINE_INTERVALS).toEqual([1, 5, 15, 60, 240, 1440]);
     expect(KLINE_META[1]).toMatchObject({ label: "1分钟", limit: 480, geckoUnit: "minute", geckoAggregate: 1 });

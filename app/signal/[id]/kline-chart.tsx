@@ -80,7 +80,7 @@ export default function KlineChart({ chain, address, initialFifteen }: { chain: 
       setHistoryLoaded(state.isHistoryLoaded);
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
-      const failed = { candles: [], source: "", reason: "该链暂不支持此周期，或数据源请求失败。" };
+      const failed = { candles: [], source: "", reason: "K线数据源暂时不可用，已保留上次成功数据。" };
       if (generation.current === requestGeneration) { setResult(failed); setHistoryLoaded(false); }
     } finally { if (generation.current === requestGeneration) setLoading(false); }
   }
@@ -114,6 +114,6 @@ export default function KlineChart({ chain, address, initialFifteen }: { chain: 
   return <div data-kline-request-count={requestCount} data-kline-full-request-count={fullRequestCount} data-kline-incremental-request-count={incrementalRequestCount} data-kline-bar-count={result.candles.length} data-kline-history-loaded={historyLoaded} data-kline-mode="history-plus-incremental-5">
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-semibold">价格K线</h2><p className="mt-1 text-xs text-slate-500">北京时间 · {KLINE_META[interval].label} · {KLINE_META[interval].window}</p></div><div className="flex min-w-0 flex-col gap-2 sm:items-end"><div className="flex max-w-full flex-wrap rounded-lg border border-white/[0.1] bg-[#070b11] p-1" role="group" aria-label="K线周期">{KLINE_INTERVALS.map((value) => <button key={value} type="button" onClick={() => void selectInterval(value)} className={`rounded-md px-2.5 py-1.5 text-xs transition ${interval === value ? "bg-cyan-300/15 text-cyan-200" : "text-slate-400 hover:bg-white/[0.05] hover:text-slate-200"}`}>{KLINE_META[value].label}</button>)}</div><span className="text-xs text-slate-500">{loading ? "正在获取…" : result.source || "暂无数据源"}</span></div></div>
     {realtimeInterrupted && result.candles.length > 0 ? <p className="mt-2 text-xs text-amber-300">实时更新暂时中断，已保留完整历史图表。</p> : result.candles.length > 0 ? <p className="mt-2 text-xs text-emerald-300/80">实时 · 已加载 {result.candles.length} 根，增量同步最近 5 根</p> : null}
-    {loading ? <div className="mt-4 grid h-64 place-items-center rounded-xl border border-white/[0.06] text-sm text-slate-500">加载对应周期数据…</div> : result.candles.length ? <Chart data={result.candles} interval={interval}/> : <div className="mt-4 grid h-64 place-items-center rounded-xl border border-dashed border-white/[0.08] px-6 text-center text-sm leading-6 text-slate-400">{result.reason || "该链暂不支持此周期"}</div>}
+    {loading ? <div className="mt-4 grid h-64 place-items-center rounded-xl border border-white/[0.06] text-sm text-slate-500">加载对应周期数据…</div> : result.candles.length ? <Chart data={result.candles} interval={interval}/> : <div className="mt-4 grid h-64 place-items-center rounded-xl border border-dashed border-white/[0.08] px-6 text-center text-sm leading-6 text-slate-400">{result.reason || "该数据源暂未收录"}</div>}
   </div>;
 }
