@@ -42,6 +42,9 @@ export const signals = sqliteTable("signals", {
   volume24h: integer("volume_24h").notNull().default(0),
   price: text("price").notNull().default("0"),
   gmgnTheme: text("gmgn_theme").notNull().default("暂无"),
+  officialDescription: text("official_description").notNull().default(""),
+  descriptionSource: text("description_source"),
+  descriptionUpdatedAt: text("description_updated_at"),
   aiAnalysis: text("ai_analysis").notNull().default("等待有效社媒讨论"),
   walletNamesJson: text("wallet_names_json").notNull().default("[]"),
   alertedAt: text("alerted_at").notNull(),
@@ -92,6 +95,8 @@ export const monitorRuns = sqliteTable("monitor_runs", {
   fetchedRows: integer("fetched_rows").notNull().default(0),
   matchedRows: integer("matched_rows").notNull().default(0),
   feedErrorsJson: text("feed_errors_json").notNull().default("[]"),
+  dataReviewCount: integer("data_review_count").notNull().default(0),
+  marketConflictCount: integer("market_conflict_count").notNull().default(0),
 });
 
 export const sourceHealth = sqliteTable("source_health", {
@@ -104,6 +109,8 @@ export const sourceHealth = sqliteTable("source_health", {
   consecutiveFailures: integer("consecutive_failures").notNull().default(0),
   lastLatencyMs: integer("last_latency_ms").notNull().default(0),
   lastError: text("last_error"),
+  nextRetryAt: text("next_retry_at"),
+  impact: text("impact").notNull().default("none"),
 }, (table) => [primaryKey({ columns: [table.source, table.chain] })]);
 
 export const marketReviews = sqliteTable("market_reviews", {

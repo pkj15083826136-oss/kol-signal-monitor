@@ -19,6 +19,7 @@ describe("first signal policy", () => {
   });
   it("suppresses old high-cap assets and the confirmed HYPE contract", () => {
     expect(assessFirstSignal({ symbol: "NEW", marketCap: 20_000_001, createdAt: now - FIRST_SIGNAL_MAX_AGE_MS - 1, identityVerified: true, now })).toMatchObject({ status: "suppressed" });
-    expect(assessFirstSignal({ symbol: "HYPE", chain: "sol", address: "98sMhvDwXj1RQj5c5Mndm3vPe9cBqPrbLaufMXFNMh5g", marketCap: 1, createdAt: now, identityVerified: true, now })).toMatchObject({ status: "suppressed" });
+    expect(assessFirstSignal({ symbol: "HYPE", chain: "sol", address: "98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g", marketCap: 1, createdAt: now, identityVerified: true, now })).toMatchObject({ status: "suppressed" });
+    expect(assessFirstSignal({ symbol: "HYPE", chain: "sol", address: "98sMhvDwXj1RQj5c5Mndm3vPe9cBqPrbLaufMXFNMh5g", marketCap: 1, createdAt: now, identityVerified: true, now })).toMatchObject({ status: "allow" });
   });
 });

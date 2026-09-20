@@ -6,7 +6,6 @@ const MATURE_BASE_SYMBOLS = new Set([
 export const FIRST_SIGNAL_MAX_MARKET_CAP = 20_000_000;
 export const FIRST_SIGNAL_MAX_AGE_MS = 10 * 24 * 60 * 60 * 1000;
 const CONFIRMED_MATURE_ASSETS = new Set([
-  "sol:98sMhvDwXj1RQj5c5Mndm3vPe9cBqPrbLaufMXFNMh5g",
   "sol:98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g",
 ]);
 

@@ -16,6 +16,20 @@ export function isKlineInterval(value: number): value is KlineInterval {
   return KLINE_INTERVALS.includes(value as KlineInterval);
 }
 
+export function klinePollingDelay(interval: KlineInterval, hidden: boolean) {
+  if (hidden) return 60_000;
+  if (interval === 1) return 7_500;
+  if (interval === 5 || interval === 15) return 12_000;
+  return 25_000;
+}
+
+export function mergeCandles(current: KlineResult, incremental: KlineResult): KlineResult {
+  if (!incremental.candles.length) return current;
+  const merged = new Map(current.candles.map((candle) => [candle.time, candle]));
+  for (const candle of incremental.candles) merged.set(candle.time, candle);
+  return { candles: [...merged.values()].sort((a, b) => a.time - b.time), source: incremental.source || current.source, reason: "" };
+}
+
 export class KlineCache {
   private readonly values = new Map<KlineInterval, KlineResult>();
 

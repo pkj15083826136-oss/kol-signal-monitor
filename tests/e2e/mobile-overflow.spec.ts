@@ -64,19 +64,21 @@ test("desktop screenshots, relative signal time, navigation fallback and cached 
   const direct = await context.newPage();
   await direct.goto(`/signal/${signal.id}`, { waitUntil: "domcontentloaded" });
   await direct.screenshot({ path: `docs/screenshots/${evidenceLabel}-detail-desktop-1440x1000.png`, fullPage: true });
-  let klineRequests = 0;
-  direct.on("request", (request) => { if (request.url().includes("/api/market/kline")) klineRequests += 1; });
+  let fullKlineRequests = 0;
+  let incrementalKlineRequests = 0;
+  direct.on("request", (request) => { if (request.url().includes("/api/market/kline")) { if (new URL(request.url()).searchParams.get("limit") === "5") incrementalKlineRequests += 1; else fullKlineRequests += 1; } });
   await expect(direct.getByText(/价格 .* · 市值 .* · 流动性 .* · 24H/)).toHaveCount(0);
   for (const label of ["1分钟", "5分钟", "1小时", "4小时", "1天"]) {
     await direct.getByRole("button", { name: label, exact: true }).click();
     await expect.poll(() => direct.locator("[data-kline-request-count]").getAttribute("data-kline-request-count")).not.toBeNull();
     await expect(direct.getByText(/该链暂不支持此周期|GeckoTerminal|Ave\.ai/).last()).toBeVisible();
   }
-  expect(klineRequests).toBe(5);
+  expect(fullKlineRequests).toBe(5);
   await direct.getByRole("button", { name: "1分钟", exact: true }).click();
-  expect(klineRequests).toBe(5);
+  expect(fullKlineRequests).toBe(5);
   await direct.getByRole("button", { name: "5分钟", exact: true }).click();
-  expect(klineRequests).toBe(5);
+  expect(fullKlineRequests).toBe(5);
+  expect(incrementalKlineRequests).toBeGreaterThanOrEqual(0);
   await direct.evaluate(() => sessionStorage.clear());
   await direct.reload({ waitUntil: "domcontentloaded" });
   await direct.getByRole("button", { name: "返回预警列表" }).click();

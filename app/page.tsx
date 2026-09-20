@@ -18,7 +18,7 @@ async function loadSignals(): Promise<{ signals: SignalRow[]; lastRun: string | 
     const [run, chainRows, sourceRows, alertRows] = await Promise.all([
       db.prepare("SELECT status, finished_at FROM monitor_runs ORDER BY id DESC LIMIT 1").first<{ status: string; finished_at: string }>(),
       db.prepare("SELECT chain, status, finished_at FROM monitor_runs WHERE chain != '' AND id IN (SELECT MAX(id) FROM monitor_runs WHERE chain != '' GROUP BY chain)").all<Record<string, unknown>>(),
-      db.prepare("SELECT source, chain, status, last_attempt_at, last_latency_ms FROM source_health ORDER BY source, chain").all<Record<string, unknown>>(),
+      db.prepare("SELECT source, chain, status, last_attempt_at, last_success_at, last_error, consecutive_failures, next_retry_at, impact, last_latency_ms FROM source_health ORDER BY source, chain").all<Record<string, unknown>>(),
       db.prepare("SELECT alert_status, COUNT(*) count FROM signals WHERE alert_status IN ('pending','retry','manual_review') GROUP BY alert_status").all<Record<string, unknown>>(),
     ]);
     return {

@@ -61,20 +61,24 @@ function write(db: D1Database, sql: string, name: string, fields: Record<string,
 
 async function recordSourceHealth(db: D1Database, source: string, chain: string, ok: boolean, latencyMs: number, error = "") {
   const now = new Date().toISOString();
+  const rateLimited = /429|rate.?limit|too many/i.test(error);
+  const status = ok ? "healthy" : rateLimited ? "rate_limited" : "degraded";
+  const nextRetryAt = ok ? null : new Date(Date.now() + (rateLimited ? 15 * 60_000 : 60_000)).toISOString();
   await write(db, `INSERT INTO source_health
-    (source, chain, status, last_attempt_at, last_success_at, last_failure_at, consecutive_failures, last_latency_ms, last_error)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (source, chain, status, last_attempt_at, last_success_at, last_failure_at, consecutive_failures, last_latency_ms, last_error, next_retry_at, impact)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(source, chain) DO UPDATE SET
       status = excluded.status,
       last_attempt_at = excluded.last_attempt_at,
       last_success_at = CASE WHEN excluded.status = 'healthy' THEN excluded.last_success_at ELSE source_health.last_success_at END,
-      last_failure_at = CASE WHEN excluded.status = 'failed' THEN excluded.last_failure_at ELSE source_health.last_failure_at END,
+      last_failure_at = CASE WHEN excluded.status != 'healthy' THEN excluded.last_failure_at ELSE source_health.last_failure_at END,
       consecutive_failures = CASE WHEN excluded.status = 'healthy' THEN 0 ELSE source_health.consecutive_failures + 1 END,
       last_latency_ms = excluded.last_latency_ms,
-      last_error = excluded.last_error`, "source_health.upsert", {
-      source: d1Text(source), chain: d1Text(chain), status: ok ? "healthy" : "failed", last_attempt_at: now,
+      last_error = excluded.last_error, next_retry_at = excluded.next_retry_at, impact = excluded.impact`, "source_health.upsert", {
+      source: d1Text(source), chain: d1Text(chain), status, last_attempt_at: now,
       last_success_at: ok ? now : null, last_failure_at: ok ? null : now, consecutive_failures: ok ? 0 : 1,
       last_latency_ms: d1Integer(latencyMs), last_error: ok ? null : d1Text(error).slice(0, 500),
+      next_retry_at: nextRetryAt, impact: ok ? "none" : source.includes("market") ? "first_signal_gate" : "ingestion_degraded",
     }).run();
 }
 
@@ -203,6 +207,8 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
   let newSignals = 0;
   let fetchedRows = 0;
   let matchedRows = 0;
+  let dataReviewCount = 0;
+  let marketConflictCount = 0;
   let feedErrors: string[] = [];
   const touched = new Map<string, { chain: string; token: string }>();
   try {
@@ -302,6 +308,8 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
           createdAt: liveMarket.createdAt || null, identityVerified: liveMarket.identityVerified, marketDataConflict: liveMarket.marketDataConflict,
         }) : { status: "data_review" as const, reason: "market_data_unavailable" };
         if (decision.status !== "allow") {
+          if (decision.status === "data_review") dataReviewCount += 1;
+          if (decision.reason === "market_data_conflict") marketConflictCount += 1;
           if (liveMarket) await recordMarketReview(db, chain, token, liveMarket, decision.status, decision.reason);
           continue;
         }
@@ -336,7 +344,8 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
       const holders = liveMarket?.holders ?? firstNumber(info, ["holder_count", "holders"]);
       const volume24h = liveMarket?.volume24h || firstNumber(info, ["volume_24h", "volume24h", "swap_volume_24h"]);
       const launchpad = firstString(tradeToken, ["launchpad"]);
-      let gmgnTheme = liveMarket?.description || firstString(info, ["description", "narrative", "theme", "bio"]);
+      const officialDescription = liveMarket?.description || firstString(info, ["description", "bio"]);
+      let gmgnTheme = firstString(info, ["narrative", "theme"]);
       let narrative = (due === 6 || due === 38) ? await analyzeNarrative({ chain, address: token, symbol, name }).catch(() => null) : await latestNarrative(db, chain, token);
       if (!narrative) narrative = { projectIntro: "", aiAnalysis: "社媒有效信息不足，暂未形成清晰叙事。", posts: [], raw: "" };
       if (!gmgnTheme) gmgnTheme = launchpad ? `由 ${launchpad} 发行；暂无可核验的官方项目简介。` : "暂无可核验的官方项目简介。";
@@ -348,12 +357,13 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
         gmgnTheme, aiAnalysis: narrative.aiAnalysis, walletNames, detailUrl: "",
       };
       const inserted = await write(db, `INSERT INTO signals
-        (chain, token_address, name, symbol, logo, threshold, holder_count, market_cap, liquidity, holders, volume_24h, price, gmgn_theme, ai_analysis, wallet_names_json, alerted_at, alert_status, alert_attempts, alert_payload_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?)`, "signals.insert", {
+        (chain, token_address, name, symbol, logo, threshold, holder_count, market_cap, liquidity, holders, volume_24h, price, gmgn_theme, official_description, description_source, description_updated_at, ai_analysis, wallet_names_json, alerted_at, alert_status, alert_attempts, alert_payload_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?)`, "signals.insert", {
         chain: d1Text(chain), token_address: d1Text(token), name: d1Text(name, "Unknown"), symbol: d1Text(symbol, "—"),
         logo: d1Text(liveMarket?.logo || firstString(info, ["logo", "logo_url"]) || firstString(tradeToken, ["logo", "logo_url"])),
         threshold: d1Integer(due), holder_count: d1Integer(holderCount), market_cap: d1Integer(marketCap), liquidity: d1Integer(liquidity),
         holders: d1Integer(holders), volume_24h: d1Integer(volume24h), price: d1Text(currentPrice, "0"), gmgn_theme: d1Text(gmgnTheme.slice(0, 500)),
+        official_description: d1Text(officialDescription).slice(0, 1200), description_source: d1Text(liveMarket?.descriptionSource), description_updated_at: d1Text(liveMarket?.descriptionUpdatedAt),
         ai_analysis: d1Text(narrative.aiAnalysis), wallet_names_json: d1Json(walletNames, []), alerted_at: new Date().toISOString(), alert_payload_json: d1Json(alertPayload),
       }).run();
       const signalId = Number(inserted.meta.last_row_id);
@@ -374,18 +384,20 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
     }
     const alertDeliveryAfter = await deliverAlerts(db);
     const finishedAt = new Date().toISOString();
-    await write(db, "INSERT INTO monitor_runs (status, new_trades, new_signals, started_at, finished_at, chain, fetched_rows, matched_rows, feed_errors_json) VALUES ('success', ?, ?, ?, ?, ?, ?, ?, ?)", "monitor_runs.success", {
+    await write(db, "INSERT INTO monitor_runs (status, new_trades, new_signals, started_at, finished_at, chain, fetched_rows, matched_rows, feed_errors_json, data_review_count, market_conflict_count) VALUES ('success', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", "monitor_runs.success", {
       new_trades: d1Integer(newTrades), new_signals: d1Integer(newSignals), started_at: d1Text(startedAt), finished_at: d1Text(finishedAt),
       chain: d1Text(selectedChain), fetched_rows: d1Integer(fetchedRows), matched_rows: d1Integer(matchedRows), feed_errors_json: d1Json(feedErrors, []),
+      data_review_count: d1Integer(dataReviewCount), market_conflict_count: d1Integer(marketConflictCount),
     }).run();
-    return { ok: true, selectedChain, fetchedRows, matchedRows, newTrades, newSignals, feedErrors, alertDeliveryBefore, alertDeliveryAfter, startedAt, finishedAt };
+    return { ok: true, selectedChain, fetchedRows, matchedRows, newTrades, newSignals, dataReviewCount, marketConflictCount, feedErrors, alertDeliveryBefore, alertDeliveryAfter, startedAt, finishedAt };
   } catch (error) {
     const finishedAt = new Date().toISOString();
     const message = error instanceof Error ? error.message : "未知错误";
     try {
-      await write(db, "INSERT INTO monitor_runs (status, new_trades, new_signals, error, started_at, finished_at, chain, fetched_rows, matched_rows, feed_errors_json) VALUES ('failed', ?, ?, ?, ?, ?, ?, ?, ?, ?)", "monitor_runs.failed", {
+      await write(db, "INSERT INTO monitor_runs (status, new_trades, new_signals, error, started_at, finished_at, chain, fetched_rows, matched_rows, feed_errors_json, data_review_count, market_conflict_count) VALUES ('failed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", "monitor_runs.failed", {
         new_trades: d1Integer(newTrades), new_signals: d1Integer(newSignals), error: d1Text(message), started_at: d1Text(startedAt), finished_at: d1Text(finishedAt),
         chain: d1Text(selectedChain), fetched_rows: d1Integer(fetchedRows), matched_rows: d1Integer(matchedRows), feed_errors_json: d1Json(feedErrors, []),
+        data_review_count: d1Integer(dataReviewCount), market_conflict_count: d1Integer(marketConflictCount),
       }).run();
     } catch (recordError) {
       throw new AggregateError([error, recordError], `监控失败且无法写入 monitor_runs：${message}`);

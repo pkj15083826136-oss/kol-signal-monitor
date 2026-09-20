@@ -3,7 +3,14 @@ import { resolveTokenMarket, tokenAddressEquals, type MarketCapKind, type Market
 
 type JsonRecord = Record<string, unknown>;
 type DexPair = JsonRecord & { _requestedChain: string };
-export type BatchMarketItem = Pick<MarketData, "price" | "marketCap" | "liquidity" | "holders" | "volume24h"> & Partial<Pick<MarketData, "marketDataConflict" | "marketCapCandidates" | "holderSource" | "holderUpdatedAt">> & { chain: string; address: string; updatedAt: string; source: string; marketCapKind?: MarketCapKind; marketCapSource?: MarketSource | null };
+export type SnapshotField = "price" | "priceChange24h" | "marketCap" | "liquidity" | "volume24h" | "holders";
+export type BatchMarketItem = Pick<MarketData, "price" | "priceChange24h" | "marketCap" | "liquidity" | "holders" | "volume24h"> & Partial<Pick<MarketData, "marketDataConflict" | "marketCapCandidates" | "holderSource" | "holderUpdatedAt" | "change24hSource" | "change24hUpdatedAt">> & {
+  chain: string; address: string; tokenAddress: string; pairAddress: string; symbol: string; decimals: number | null;
+  updatedAt: string; sourceTimestamp: string; receivedAt: string; source: string; identityVerified: boolean;
+  marketCapKind?: MarketCapKind; marketCapSource?: MarketSource | null;
+  fieldSources: Partial<Record<SnapshotField, string>>; fieldUpdatedAt: Partial<Record<SnapshotField, string>>;
+  staleFields: SnapshotField[]; conflictFields: SnapshotField[];
+};
 const dexChain: Record<string, string> = { sol: "solana", bsc: "bsc", base: "base", robinhood: "robinhood" };
 function record(value: unknown): JsonRecord { return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {}; }
 function number(value: unknown): number { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : 0; }
@@ -23,7 +30,11 @@ async function getAveBatch(tokens: Array<{ chain: string; address: string }>, up
       const tokenId = `${token.address}-${chainId}`;
       const row = record(data[tokenId]);
       if (!Object.keys(row).length) continue;
-      const parsed: TokenMarketCandidate = { source: "ave", chain: token.chain, address: token.address, pairAddress: "", name: "", symbol: "", logo: "", description: "", price: number(row.current_price_usd) || null, marketCap: null, fdv: null, circulatingSupply: null, totalSupply: null, decimals: null, liquidity: number(row.tvl) || null, volume24h: number(row.tx_volume_u_24h) || null, holderCount: null, createdAt: null, updatedAt, identityVerified: true };
+      const returnedAddress = string(row.token ?? row.address ?? row.token_address) || token.address;
+      const returnedChain = string(row.chain ?? row.chain_id ?? row.network);
+      const identityVerified = tokenAddressEquals(token.chain, returnedAddress, token.address) && (!returnedChain || [token.chain, chainId].includes(returnedChain.toLowerCase()));
+      const change = row.price_change_24h ?? row.price_change_24h_percent ?? row.price_change_percent_24h;
+      const parsed: TokenMarketCandidate = { source: "ave", chain: token.chain, address: returnedAddress, pairAddress: string(row.main_pair), name: string(row.name), symbol: string(row.symbol), logo: "", description: "", descriptionSource: null, price: number(row.current_price_usd) || null, priceChange24h: change === null || change === undefined || change === "" || !Number.isFinite(Number(change)) ? null : Number(change), marketCap: null, fdv: null, circulatingSupply: null, totalSupply: null, decimals: Number.isFinite(Number(row.decimals ?? row.decimal)) ? Number(row.decimals ?? row.decimal) : null, liquidity: number(row.tvl) || null, volume24h: number(row.tx_volume_u_24h) || null, holderCount: null, createdAt: null, updatedAt, identityVerified };
       result.set(`${token.chain}:${token.address.toLowerCase()}`, parsed);
     }
     return result;
@@ -52,9 +63,17 @@ export async function getBatchMarketData(tokens: Array<{ chain: string; address:
     const candidates = pairs.filter((pair) => pair._requestedChain === token.chain && tokenAddressEquals(token.chain, string(record(pair.baseToken).address), token.address));
     const pair = candidates.sort((a, b) => number(record(b.liquidity).usd) - number(record(a.liquidity).usd))[0] || {};
     const base = record(pair.baseToken);
-    const dex: TokenMarketCandidate | null = Object.keys(pair).length ? { source: "dex", chain: token.chain, address: token.address, pairAddress: string(pair.pairAddress), name: string(base.name), symbol: string(base.symbol), logo: "", description: "", price: number(pair.priceUsd) || null, marketCap: null, fdv: null, circulatingSupply: null, totalSupply: null, decimals: null, liquidity: number(record(pair.liquidity).usd) || null, volume24h: number(record(pair.volume).h24) || null, holderCount: null, createdAt: number(pair.pairCreatedAt) || null, updatedAt, identityVerified: tokenAddressEquals(token.chain, string(base.address), token.address) } : null;
+    const dexChange = record(pair.priceChange).h24;
+    const dex: TokenMarketCandidate | null = Object.keys(pair).length ? { source: "dex", chain: token.chain, address: string(base.address), pairAddress: string(pair.pairAddress), name: string(base.name), symbol: string(base.symbol), logo: "", description: "", descriptionSource: null, price: number(pair.priceUsd) || null, priceChange24h: dexChange === null || dexChange === undefined || dexChange === "" || !Number.isFinite(Number(dexChange)) ? null : Number(dexChange), marketCap: null, fdv: null, circulatingSupply: null, totalSupply: null, decimals: null, liquidity: number(record(pair.liquidity).usd) || null, volume24h: number(record(pair.volume).h24) || null, holderCount: null, createdAt: number(pair.pairCreatedAt) || null, updatedAt, identityVerified: tokenAddressEquals(token.chain, string(base.address), token.address) } : null;
     const aveItem = ave.get(`${token.chain}:${token.address.toLowerCase()}`);
     const resolved = resolveTokenMarket([aveItem, dex]);
-    return { chain: token.chain, address: token.address, price: resolved.price ?? 0, marketCap: resolved.marketCap ?? 0, marketCapKind: resolved.marketCapKind, marketCapSource: resolved.marketCapSource, marketDataConflict: resolved.marketDataConflict, marketCapCandidates: resolved.marketCapCandidates, liquidity: resolved.liquidity ?? 0, holders: resolved.holderCount, holderSource: resolved.holderSource, holderUpdatedAt: resolved.holderUpdatedAt, volume24h: resolved.volume24h ?? 0, updatedAt, source: aveItem ? "Ave.ai" : dex ? "DexScreener" : "unavailable" };
+    const trusted = [aveItem, dex].filter((item): item is TokenMarketCandidate => Boolean(item?.identityVerified));
+    const fieldSources: Partial<Record<SnapshotField, string>> = {};
+    const sourceFor = (field: keyof TokenMarketCandidate) => trusted.find((item) => item[field] !== null)?.source;
+    for (const field of ["price", "priceChange24h", "liquidity", "volume24h"] as const) { const owner = sourceFor(field); if (owner) fieldSources[field] = owner; }
+    if (resolved.marketCapSource) fieldSources.marketCap = resolved.marketCapSource;
+    if (resolved.holderSource) fieldSources.holders = resolved.holderSource;
+    const fieldUpdatedAt = Object.fromEntries(Object.keys(fieldSources).map((field) => [field, updatedAt]));
+    return { chain: token.chain, address: token.address, tokenAddress: token.address, pairAddress: resolved.pairAddress, symbol: resolved.symbol, decimals: resolved.decimals, price: resolved.price ?? 0, priceChange24h: resolved.priceChange24h, change24hSource: resolved.change24hSource, change24hUpdatedAt: resolved.change24hUpdatedAt, marketCap: resolved.marketCap ?? 0, marketCapKind: resolved.marketCapKind, marketCapSource: resolved.marketCapSource, marketDataConflict: resolved.marketDataConflict, marketCapCandidates: resolved.marketCapCandidates, liquidity: resolved.liquidity ?? 0, holders: resolved.holderCount, holderSource: resolved.holderSource, holderUpdatedAt: resolved.holderUpdatedAt, volume24h: resolved.volume24h ?? 0, updatedAt, sourceTimestamp: updatedAt, receivedAt: updatedAt, source: trusted.some((item) => item.source === "ave") ? "Ave.ai" : trusted.some((item) => item.source === "dex") ? "DexScreener" : "unavailable", identityVerified: trusted.length > 0, fieldSources, fieldUpdatedAt, staleFields: [], conflictFields: resolved.marketDataConflict ? ["marketCap"] : [] };
   });
 }

@@ -40,7 +40,9 @@ export const SIGNAL_MARKET_UPDATE_SQL = `UPDATE signals SET
   holders = CASE WHEN ? > 0 THEN ? ELSE holders END,
   volume_24h = CASE WHEN ? > 0 THEN ? ELSE volume_24h END,
   price = CASE WHEN ? > 0 THEN ? ELSE price END,
-  gmgn_theme = CASE WHEN ? != '' THEN ? ELSE gmgn_theme END
+  official_description = CASE WHEN ? != '' THEN ? ELSE official_description END,
+  description_source = CASE WHEN ? != '' THEN ? ELSE description_source END,
+  description_updated_at = CASE WHEN ? != '' THEN ? ELSE description_updated_at END
   WHERE chain = ? AND token_address = ?`;
 
 export function signalMarketUpdateBindings(market: Record<string, unknown>, chain: unknown, token: unknown): D1Value[] {
@@ -52,7 +54,9 @@ export function signalMarketUpdateBindings(market: Record<string, unknown>, chai
   const holders = d1Integer(market.holders);
   const volume24h = d1Integer(market.volume24h);
   const price = d1Number(market.price);
-  const description = d1Text(market.description);
+  const description = d1Text(market.description).slice(0, 1200);
+  const descriptionSource = d1Text(market.descriptionSource);
+  const descriptionUpdatedAt = d1Text(market.descriptionUpdatedAt);
   return d1Bindings("signals.market_update", {
     name_check: name, name,
     symbol_check: symbol, symbol,
@@ -62,7 +66,9 @@ export function signalMarketUpdateBindings(market: Record<string, unknown>, chai
     holders_check: holders, holders,
     volume_24h_check: volume24h, volume_24h: volume24h,
     price_check: price, price: d1Text(price),
-    gmgn_theme_check: description, gmgn_theme: description,
+    official_description_check: description, official_description: description,
+    description_source_check: descriptionSource, description_source: descriptionSource,
+    description_updated_at_check: descriptionUpdatedAt, description_updated_at: descriptionUpdatedAt,
     chain: d1Text(chain), token_address: d1Text(token),
   });
 }

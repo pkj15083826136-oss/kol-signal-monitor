@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { KLINE_INTERVALS, KLINE_META, KlineCache, isKlineInterval } from "@/lib/kline";
+import { KLINE_INTERVALS, KLINE_META, KlineCache, isKlineInterval, klinePollingDelay, mergeCandles } from "@/lib/kline";
 
 describe("Kline intervals and request cache", () => {
   it("maps all six supported periods to the requested windows", () => {
@@ -21,5 +21,13 @@ describe("Kline intervals and request cache", () => {
     expect(cache.get(5)).toBe(result);
     cache.set(1, result);
     expect(cache.get(1)).toBe(result);
+  });
+  it("updates the current candle and appends a new period without clearing history", () => {
+    const current = { candles: [{ time: 1, open: 1, high: 2, low: 1, close: 1.5, volume: 2 }], source: "Ave", reason: "" };
+    const merged = mergeCandles(current, { candles: [{ time: 1, open: 1, high: 3, low: 1, close: 2, volume: 4 }, { time: 2, open: 2, high: 4, low: 2, close: 3, volume: 5 }], source: "Ave", reason: "" });
+    expect(merged.candles).toHaveLength(2); expect(merged.candles[0].close).toBe(2); expect(merged.candles[1].time).toBe(2);
+  });
+  it("uses short foreground intervals and a 60 second hidden interval", () => {
+    expect(klinePollingDelay(1, false)).toBe(7500); expect(klinePollingDelay(15, false)).toBe(12000); expect(klinePollingDelay(1440, false)).toBe(25000); expect(klinePollingDelay(1, true)).toBe(60000);
   });
 });

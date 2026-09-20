@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import hypeAve from "./fixtures/hype-ave.json";
 import { parseAveToken, parseGmgnToken, resolveTokenMarket, tokenAddressEquals } from "@/lib/token-market";
 
-const address = "98sMhvDwXj1RQj5c5Mndm3vPe9cBqPrbLaufMXFNMh5g";
+const address = "98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g";
 
 describe("token-level market normalization", () => {
   it("parses HYPE market cap above $20M and holders as a positive integer", () => {
@@ -51,5 +51,14 @@ describe("token-level market normalization", () => {
   });
   it("does not verify identity when the upstream omits token address or chain", () => {
     expect(parseGmgnToken({ data: { token: { market_cap: 99 } } }, "base", "0xabc")?.identityVerified).toBe(false);
+  });
+  it("prefers verified GMGN descriptions, sanitizes markup, and never uses unrelated AI analysis", () => {
+    const ave = parseAveToken({ data: { token: { token: address, chain: "solana", description: "Ave intro" } } }, "sol", address)!;
+    const gmgn = parseGmgnToken({ data: { token: { address, chain: "sol", description: "<b>Official</b><script>alert(1)</script> intro", ai_analysis: "invented" } } }, "sol", address)!;
+    const resolved = resolveTokenMarket([ave, gmgn]);
+    expect(resolved.description).toBe("Official intro"); expect(resolved.descriptionSource).toBe("gmgn"); expect(resolved.description).not.toContain("invented");
+  });
+  it("parses signed 24 hour changes", () => {
+    expect(parseGmgnToken({ data: { token: { address, chain: "sol", price_change_24h: "-4.25" } } }, "sol", address)?.priceChange24h).toBe(-4.25);
   });
 });
