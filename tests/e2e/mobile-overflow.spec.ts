@@ -75,14 +75,17 @@ test("desktop screenshots, relative signal time, navigation fallback and cached 
 
   const direct = await context.newPage();
   await direct.goto(`/signal/${signal.id}`, { waitUntil: "domcontentloaded" });
+  await expect(direct.locator("[data-wallet-ready='true']")).toBeVisible({ timeout: 20_000 });
   await direct.screenshot({ path: `docs/screenshots/${evidenceLabel}-detail-desktop-1440x1000.png`, fullPage: true });
   let fullKlineRequests = 0;
   let incrementalKlineRequests = 0;
   direct.on("request", (request) => { if (request.url().includes("/api/market/kline")) { if (new URL(request.url()).searchParams.get("limit") === "5") incrementalKlineRequests += 1; else fullKlineRequests += 1; } });
   await expect(direct.getByText(/价格 .* · 市值 .* · 流动性 .* · 24H/)).toHaveCount(0);
   for (const label of ["1分钟", "5分钟", "1小时", "4小时", "1天"]) {
+    const expectedFullCount = fullKlineRequests + 1;
     await direct.getByRole("button", { name: label, exact: true }).click();
-    await expect.poll(() => direct.locator("[data-kline-request-count]").getAttribute("data-kline-request-count")).not.toBeNull();
+    await expect.poll(() => fullKlineRequests).toBe(expectedFullCount);
+    await expect.poll(async () => Number(await direct.locator("[data-kline-full-request-count]").getAttribute("data-kline-full-request-count"))).toBe(expectedFullCount);
     await expect(direct.getByText(/暂未收录|暂不支持|上游.*暂时不可用|GeckoTerminal|Ave\.ai/).last()).toBeVisible();
   }
   expect(fullKlineRequests).toBe(5);
