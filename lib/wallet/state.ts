@@ -45,6 +45,12 @@ export function walletErrorMessage(error: unknown, fallback = "钱包操作失�
 
 export function walletMatchesTokenChain(walletChain: WalletChain | null, tokenChain: string) { return walletChain === tokenChain; }
 
+export function formatWalletBalance(value: unknown, symbol: unknown, fallbackSymbol: string) {
+  const amount = typeof value === "string" || typeof value === "number" ? String(value).trim() : "";
+  const unit = typeof symbol === "string" && symbol.trim() ? symbol.trim() : fallbackSymbol;
+  return amount && amount !== "undefined" && amount !== "null" ? `${amount} ${unit}` : null;
+}
+
 export class WalletOperationGate {
   private generation = 0;
   begin() { this.generation += 1; return this.generation; }

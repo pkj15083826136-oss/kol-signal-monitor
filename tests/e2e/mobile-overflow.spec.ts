@@ -83,7 +83,7 @@ test("desktop screenshots, relative signal time, navigation fallback and cached 
   for (const label of ["1分钟", "5分钟", "1小时", "4小时", "1天"]) {
     await direct.getByRole("button", { name: label, exact: true }).click();
     await expect.poll(() => direct.locator("[data-kline-request-count]").getAttribute("data-kline-request-count")).not.toBeNull();
-    await expect(direct.getByText(/暂未收录|暂不支持|GeckoTerminal|Ave\.ai/).last()).toBeVisible();
+    await expect(direct.getByText(/暂未收录|暂不支持|上游.*暂时不可用|GeckoTerminal|Ave\.ai/).last()).toBeVisible();
   }
   expect(fullKlineRequests).toBe(5);
   await direct.getByRole("button", { name: "1分钟", exact: true }).click();
@@ -151,7 +151,7 @@ test("production WOJAK loads full history before incremental updates and preserv
     await page.waitForTimeout(200);
     await expect(page.getByText("正在获取…")).toHaveCount(0, { timeout: 20_000 });
     counts[label] = Number(await page.locator("[data-kline-bar-count]").getAttribute("data-kline-bar-count"));
-    if (counts[label] === 0) await expect(page.getByText(/暂未收录|上游暂时不可用/).last()).toBeVisible();
+    if (counts[label] === 0) await expect(page.getByText(/暂未收录|上游.*暂时不可用/).last()).toBeVisible();
   }
   await page.getByRole("button", { name: "1分钟", exact: true }).click();
   const before = Number(await page.locator("[data-kline-bar-count]").getAttribute("data-kline-bar-count"));

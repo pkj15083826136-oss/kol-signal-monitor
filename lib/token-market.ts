@@ -49,7 +49,10 @@ function cleanDescription(value: unknown): string {
   return raw.replace(/\s+/g, " ").trim().slice(0, 1200);
 }
 function aveDescription(token: JsonRecord): string {
-  const direct = cleanDescription(token.description ?? token.token_introduction ?? token.introduction ?? token.project_intro);
+  const metadata = record(token.metadata);
+  const extensions = record(token.extensions);
+  const socials = record(token.socials);
+  const direct = cleanDescription(token.description ?? token.token_description ?? token.token_introduction ?? token.introduction ?? token.project_intro ?? metadata.description ?? extensions.description ?? socials.description);
   if (direct) return direct;
   const appendix = token.appendix;
   if (typeof appendix === "string") {
@@ -93,20 +96,21 @@ function identityMatches(token: JsonRecord, chain: string, address: string) {
   const returnedAddress = text(token.token ?? token.address ?? token.token_address ?? token.contract_address);
   const returnedChain = text(token.chain ?? token.chain_id ?? token.network).toLowerCase();
   const addressOkay = Boolean(returnedAddress) && tokenAddressEquals(chain, returnedAddress, address);
-  const aliases: Record<string, string[]> = { sol: ["sol", "solana"], bsc: ["bsc", "56", "bnb"], base: ["base", "8453"], robinhood: ["robinhood"] };
+  const aliases: Record<string, string[]> = { sol: ["sol", "solana"], bsc: ["bsc", "56", "bnb", "eip155:56"], base: ["base", "8453", "eip155:8453"], robinhood: ["robinhood", "4663", "eip155:4663"] };
   const chainOkay = Boolean(returnedChain) && (aliases[chain] || [chain]).includes(returnedChain);
   return addressOkay && chainOkay;
 }
 
 export function parseAveToken(payload: unknown, chain: string, address: string, now = new Date().toISOString()): TokenMarketCandidate | null {
   const root = record(payload); const data = record(root.data);
-  const token = record(data.token ?? (Array.isArray(root.data) ? root.data.find((row) => identityMatches(record(row), chain, address)) : undefined));
+  const rows = Array.isArray(root.data) ? root.data : Array.isArray(data.tokens) ? data.tokens : [];
+  const token = record(data.token ?? root.token ?? rows.find((row) => identityMatches(record(row), chain, address)) ?? data);
   if (!Object.keys(token).length) return null;
   const decimals = pick(token, ["decimal", "decimals"], true);
   return {
     source: "ave", chain, address, pairAddress: text(token.main_pair), name: text(token.name), symbol: text(token.symbol),
     logo: text(token.logo_url ?? token.logo), description: aveDescription(token), descriptionSource: "ave",
-    price: pick(token, ["current_price_usd", "price_usd", "price"]), priceChange24h: signed(token.price_change_24h ?? token.price_change_24h_percent ?? token.price_change_percent_24h), marketCap: pick(token, ["market_cap"]), fdv: pick(token, ["fdv"]),
+    price: pick(token, ["current_price_usd", "price_usd", "price"]), priceChange24h: signed(token.price_change_24h ?? token.price_change_24h_percent ?? token.price_change_percent_24h ?? token.price_change_percent24h ?? record(token.price_change).h24), marketCap: pick(token, ["market_cap"]), fdv: pick(token, ["fdv"]),
     circulatingSupply: normalizedSupply(token, ["circulating_supply"], ["circulating_supply_raw"], decimals),
     totalSupply: normalizedSupply(token, ["total", "total_supply"], ["total_supply_raw"], decimals), decimals,
     liquidity: pick(token, ["tvl", "main_pair_tvl"]), volume24h: pick(token, ["tx_volume_u_24h", "volume_24h"]),
@@ -116,13 +120,13 @@ export function parseAveToken(payload: unknown, chain: string, address: string, 
 }
 
 export function parseGmgnToken(payload: unknown, chain: string, address: string, now = new Date().toISOString()): TokenMarketCandidate | null {
-  const root = record(payload); const data = record(root.data); const token = record(data.token ?? root.token ?? data);
+  const root = record(payload); const data = record(root.data); const rows = Array.isArray(root.data) ? root.data : Array.isArray(data.tokens) ? data.tokens : []; const token = record(data.token ?? root.token ?? rows.find((row) => identityMatches(record(row), chain, address)) ?? data);
   if (!Object.keys(token).length) return null;
   const decimals = pick(token, ["decimals", "decimal"], true);
   const liquidity = record(token.liquidity);
   return {
     source: "gmgn", chain, address, pairAddress: text(token.pair_address ?? token.pair), name: text(token.name), symbol: text(token.symbol), logo: text(token.logo ?? token.logo_url),
-    description: cleanDescription(token.description ?? token.desc ?? token.bio ?? record(token.socials).description), descriptionSource: "gmgn", price: pick(token, ["price", "price_usd"]), priceChange24h: signed(token.price_change_24h ?? token.price_change_percent_24h),
+    description: cleanDescription(token.description ?? token.token_description ?? token.desc ?? token.bio ?? record(token.metadata).description ?? record(token.extensions).description ?? record(token.socials).description), descriptionSource: "gmgn", price: pick(token, ["price", "price_usd"]), priceChange24h: signed(token.price_change_24h ?? token.price_change_percent_24h ?? token.price_change_percent24h ?? record(token.price_change).h24),
     marketCap: pick(token, ["market_cap", "marketCap", "token_market_cap"]), fdv: pick(token, ["fdv"]),
     circulatingSupply: normalizedSupply(token, ["circulating_supply"], ["circulating_supply_raw"], decimals),
     totalSupply: normalizedSupply(token, ["total_supply", "total"], ["total_supply_raw"], decimals), decimals,

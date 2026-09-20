@@ -28,7 +28,7 @@ describe("list and detail navigation contracts", () => {
     const copy = readFileSync(new URL("../app/signal/[id]/copy-address.tsx", import.meta.url), "utf8");
     expect(wallet).toContain('aria-controls={menuId}');
     for (const label of ["当前网络", "复制钱包地址", "切换网络", "断开并重新连接", "断开钱包"]) expect(wallet).toContain(label);
-    expect(bridge).toContain("void close().catch");
+    expect(bridge).toContain("void closeRef.current().catch");
     expect(dashboard).toContain('className="inline-flex min-w-0 items-center gap-1.5"');
     expect(copy).toContain("event.stopPropagation()");
   });

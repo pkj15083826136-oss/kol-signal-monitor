@@ -1,12 +1,13 @@
-import type { KlineResult } from "@/lib/market";
+import type { KlineFailureKind, KlineResult } from "@/lib/market";
 
 export const KLINE_INTERVALS = [1, 5, 15, 60, 240, 1440] as const;
 export type KlineInterval = typeof KLINE_INTERVALS[number];
 
-export function klineUnavailableReason(chain: string, interval: KlineInterval) {
-  return ["sol", "bsc", "base", "robinhood"].includes(chain)
-    ? `行情数据源暂未收录该代币的${KLINE_META[interval].label}K线，或上游暂时不可用。`
-    : `该链暂不支持${KLINE_META[interval].label}K线。`;
+export function klineUnavailableReason(chain: string, interval: KlineInterval, failureKind?: KlineFailureKind) {
+  if (!["sol", "bsc", "base", "robinhood"].includes(chain) || failureKind === "unsupported") return `该链暂不支持${KLINE_META[interval].label}K线。`;
+  if (failureKind === "timeout") return `行情数据源请求超时，已保留上次成功的${KLINE_META[interval].label}K线。`;
+  if (failureKind === "upstream") return `上游行情数据源暂时不可用，已保留上次成功的${KLINE_META[interval].label}K线。`;
+  return `行情数据源暂未收录该代币的${KLINE_META[interval].label}K线。`;
 }
 
 export const KLINE_META: Record<KlineInterval, { label: string; window: string; limit: number; geckoUnit: "minute" | "hour" | "day"; geckoAggregate: number }> = {

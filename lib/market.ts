@@ -36,7 +36,8 @@ export type MarketData = {
 };
 
 export type Candle = { time: number; open: number; high: number; low: number; close: number; volume: number };
-export type KlineResult = { candles: Candle[]; source: string; reason: string };
+export type KlineFailureKind = "unsupported" | "unindexed" | "timeout" | "upstream";
+export type KlineResult = { candles: Candle[]; source: string; reason: string; failureKind?: KlineFailureKind };
 
 const emptyMarket: MarketData = { name: "", symbol: "", logo: "", description: "", descriptionSource: null, descriptionUpdatedAt: null, price: 0, priceChange24h: null, change24hSource: null, change24hUpdatedAt: null, marketCap: 0, filterMarketCap: null, marketCapKind: null, marketCapSource: null, marketDataConflict: false, marketCapCandidates: {}, selectionReason: "market cap unavailable", liquidity: 0, holders: null, holderSource: null, holderUpdatedAt: null, volume24h: 0, pairAddress: "", dexUrl: "", createdAt: 0, identityVerified: false, sourceStatus: {} };
 const dexChain: Record<string, string> = { sol: "solana", bsc: "bsc", base: "base", robinhood: "robinhood" };
@@ -145,24 +146,27 @@ export async function getMarketData(chain: string, address: string, options: { u
   };
 }
 
-async function getAveKline(chain: string, address: string, interval: KlineInterval, limit: number): Promise<Candle[]> {
+type KlineAttempt = { candles: Candle[]; failureKind?: KlineFailureKind };
+
+async function getAveKline(chain: string, address: string, interval: KlineInterval, limit: number): Promise<KlineAttempt> {
   const apiKey = runtimeEnv("AVE_API_KEY");
   const chainId = aveChain[chain];
-  if (!apiKey || !chainId) return [];
+  if (!chainId) return { candles: [], failureKind: "unsupported" };
+  if (!apiKey) return { candles: [], failureKind: "upstream" };
   const tokenId = `${address}-${chainId}`;
   const response = await fetchWithRetry(`https://prod.ave-api.com/v2/klines/token/${encodeURIComponent(tokenId)}?interval=${interval}&limit=${limit}`, {
     headers: { Accept: "application/json", "X-API-KEY": apiKey, "User-Agent": "KOL-Signal-Monitor/1.0" }, signal: AbortSignal.timeout(8000),
   });
-  if (!response.ok) return [];
+  if (!response.ok) return { candles: [], failureKind: response.status === 404 ? "unindexed" : "upstream" };
   const root = record(await response.json());
   const points = record(root.data).points;
-  if (!Array.isArray(points)) return [];
-  return points.map(record).map((row) => ({ time: number(row.time), open: number(row.open), high: number(row.high), low: number(row.low), close: number(row.close), volume: number(row.volume) })).filter((row) => row.time && row.high && row.low).sort((a, b) => a.time - b.time);
+  if (!Array.isArray(points)) return { candles: [], failureKind: "unindexed" };
+  return { candles: points.map(record).map((row) => ({ time: number(row.time), open: number(row.open), high: number(row.high), low: number(row.low), close: number(row.close), volume: number(row.volume) })).filter((row) => row.time && row.high && row.low).sort((a, b) => a.time - b.time), failureKind: points.length ? undefined : "unindexed" };
 }
 
-async function getGeckoKline(chain: string, address: string, interval: KlineInterval, limit: number): Promise<Candle[]> {
+async function getGeckoKline(chain: string, address: string, interval: KlineInterval, limit: number): Promise<KlineAttempt> {
   const network = geckoChain[chain];
-  if (!network) return [];
+  if (!network) return { candles: [], failureKind: "unsupported" };
   const key = `${chain}:${chain === "sol" ? address : address.toLowerCase()}`;
   const cached = geckoPoolCache.get(key);
   let poolAddress = cached && cached.expiresAt > Date.now() ? cached.address : "";
@@ -170,33 +174,35 @@ async function getGeckoKline(chain: string, address: string, interval: KlineInte
     const poolsResponse = await fetchWithRetry(`https://api.geckoterminal.com/api/v2/networks/${network}/tokens/${encodeURIComponent(address)}/pools?page=1`, {
       headers: { Accept: "application/json;version=20230302", "User-Agent": "KOL-Signal-Monitor/1.0" }, signal: AbortSignal.timeout(8000),
     });
-    if (!poolsResponse.ok) return [];
+    if (!poolsResponse.ok) return { candles: [], failureKind: poolsResponse.status === 404 ? "unindexed" : "upstream" };
     const pools = record(await poolsResponse.json()).data;
     const rows = Array.isArray(pools) ? pools.map(record) : [];
     rows.sort((a, b) => number(record(b.attributes).reserve_in_usd) - number(record(a.attributes).reserve_in_usd));
     poolAddress = string(record(rows[0]?.attributes).address);
     if (poolAddress) geckoPoolCache.set(key, { address: poolAddress, expiresAt: Date.now() + 5 * 60_000 });
   }
-  if (!poolAddress) return [];
+  if (!poolAddress) return { candles: [], failureKind: "unindexed" };
   const meta = KLINE_META[interval];
   const candleResponse = await fetchWithRetry(`https://api.geckoterminal.com/api/v2/networks/${network}/pools/${encodeURIComponent(poolAddress)}/ohlcv/${meta.geckoUnit}?aggregate=${meta.geckoAggregate}&limit=${limit}&currency=usd`, {
     headers: { Accept: "application/json;version=20230302", "User-Agent": "KOL-Signal-Monitor/1.0" }, signal: AbortSignal.timeout(8000),
   });
-  if (!candleResponse.ok) return [];
+  if (!candleResponse.ok) return { candles: [], failureKind: candleResponse.status === 404 ? "unindexed" : "upstream" };
   const list = record(record(await candleResponse.json()).data).attributes;
   const raw = record(list).ohlcv_list;
-  if (!Array.isArray(raw)) return [];
-  return raw.filter(Array.isArray).map((row) => ({ time: number(row[0]), open: number(row[1]), high: number(row[2]), low: number(row[3]), close: number(row[4]), volume: number(row[5]) })).sort((a, b) => a.time - b.time);
+  if (!Array.isArray(raw)) return { candles: [], failureKind: "unindexed" };
+  const candles = raw.filter(Array.isArray).map((row) => ({ time: number(row[0]), open: number(row[1]), high: number(row[2]), low: number(row[3]), close: number(row[4]), volume: number(row[5]) })).sort((a, b) => a.time - b.time);
+  return { candles, failureKind: candles.length ? undefined : "unindexed" };
 }
 
 export async function getKlineData(chain: string, address: string, interval: KlineInterval = 15, requestedLimit?: number): Promise<KlineResult> {
   const limit = Math.max(2, Math.min(requestedLimit ?? KLINE_META[interval].limit, KLINE_META[interval].limit));
-  const ave = await getAveKline(chain, address, interval, limit).catch(() => []);
-  if (ave.length) return { candles: ave, source: `Ave.ai · ${KLINE_META[interval].label}`, reason: "" };
-  const gecko = await getGeckoKline(chain, address, interval, limit).catch(() => []);
-  if (gecko.length) return { candles: gecko, source: `GeckoTerminal · ${KLINE_META[interval].label}`, reason: "" };
+  const classify = (error: unknown): KlineAttempt => ({ candles: [], failureKind: error instanceof DOMException && error.name === "TimeoutError" ? "timeout" : /timeout/i.test(error instanceof Error ? error.message : "") ? "timeout" : "upstream" });
+  const [ave, gecko] = await Promise.all([getAveKline(chain, address, interval, limit).catch(classify), getGeckoKline(chain, address, interval, limit).catch(classify)]);
+  if (ave.candles.length) return { candles: ave.candles, source: `Ave.ai · ${KLINE_META[interval].label}`, reason: "" };
+  if (gecko.candles.length) return { candles: gecko.candles, source: `GeckoTerminal · ${KLINE_META[interval].label}`, reason: "" };
+  const failureKind: KlineFailureKind = [ave.failureKind, gecko.failureKind].includes("timeout") ? "timeout" : [ave.failureKind, gecko.failureKind].includes("upstream") ? "upstream" : [ave.failureKind, gecko.failureKind].every((kind) => kind === "unsupported") ? "unsupported" : "unindexed";
   return {
     candles: [], source: "",
-    reason: klineUnavailableReason(chain, interval),
+    reason: klineUnavailableReason(chain, interval, failureKind), failureKind,
   };
 }

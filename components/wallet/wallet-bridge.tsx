@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAppKit, useAppKitAccount, useAppKitBalance, useAppKitNetwork, useAppKitState, useDisconnect, useWalletInfo } from "@reown/appkit/react";
 import { WalletContext, type WalletAccount, type WalletContextValue } from "@/components/wallet/wallet-root";
 import { walletNetworkByChain } from "@/lib/wallet/networks";
-import { chainFromNetwork, validWalletAddress, WALLET_CHAIN_META, WalletOperationGate, walletConnectionPhase, walletErrorMessage, withWalletTimeout, type WalletChain, type WalletNamespace } from "@/lib/wallet/state";
+import { chainFromNetwork, formatWalletBalance, validWalletAddress, WALLET_CHAIN_META, WalletOperationGate, walletConnectionPhase, walletErrorMessage, withWalletTimeout, type WalletChain, type WalletNamespace } from "@/lib/wallet/state";
 
 function namespaceFor(chain: WalletChain): WalletNamespace { return WALLET_CHAIN_META[chain].namespace; }
 
@@ -21,11 +21,23 @@ export default function WalletBridge({ children }: { children: React.ReactNode }
   const [balance, setBalance] = useState<string | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [restoreTimedOut, setRestoreTimedOut] = useState(false);
-  const [locallyDisconnected, setLocallyDisconnected] = useState(false);
+  const [locallyDisconnected, setLocallyDisconnected] = useState(() => { try { return localStorage.getItem("kol-wallet-user-disconnected") === "1"; } catch { return false; } });
   const gate = useRef(new WalletOperationGate());
   const operationRef = useRef<{ kind: "connect" | "switch"; target: WalletChain | null; generation: number } | null>(null);
   const balanceGeneration = useRef(0);
   const modalWasOpen = useRef(false);
+  const fetchBalanceRef = useRef(fetchBalance);
+  const openRef = useRef(open);
+  const closeRef = useRef(close);
+  const disconnectRef = useRef(appKitDisconnect);
+  const switchNetworkRef = useRef(network.switchNetwork);
+  useEffect(() => {
+    fetchBalanceRef.current = fetchBalance;
+    openRef.current = open;
+    closeRef.current = close;
+    disconnectRef.current = appKitDisconnect;
+    switchNetworkRef.current = network.switchNetwork;
+  }, [fetchBalance, open, close, appKitDisconnect, network.switchNetwork]);
   const chain = chainFromNetwork(network.chainId, network.caipNetworkId);
   const namespace: WalletNamespace = chain ? namespaceFor(chain) : solana.isConnected && !evm.isConnected ? "solana" : "eip155";
   const account = namespace === "solana" ? solana : evm;
@@ -46,10 +58,10 @@ export default function WalletBridge({ children }: { children: React.ReactNode }
     queueMicrotask(() => {
       if (!active) return;
       operationRef.current = null; setOperation(null); setError(null); setRestoreTimedOut(false); modalWasOpen.current = false;
-      void close().catch(() => {});
+      void closeRef.current().catch(() => {});
     });
     return () => { active = false; };
-  }, [connected, address, chain, close]);
+  }, [connected]);
 
   useEffect(() => {
     if (!operation || connected) return;
@@ -58,10 +70,10 @@ export default function WalletBridge({ children }: { children: React.ReactNode }
       if (!gate.current.isCurrent(generation)) return;
       gate.current.cancel(); operationRef.current = null; setOperation(null);
       setError(operation.kind === "switch" ? `切换到 ${operation.target ? WALLET_CHAIN_META[operation.target].name : "目标网络"} 超时，请重试` : "钱包响应超时，请重新连接");
-      void close().catch(() => {});
+      void closeRef.current().catch(() => {});
     }, 15_000);
     return () => clearTimeout(timer);
-  }, [operation, connected, close]);
+  }, [operation, connected]);
 
   useEffect(() => {
     if (appState.open) modalWasOpen.current = true;
@@ -83,11 +95,11 @@ export default function WalletBridge({ children }: { children: React.ReactNode }
       return;
     }
     queueMicrotask(() => { if (generation === balanceGeneration.current) setBalanceLoading(true); });
-    fetchBalance().then((result) => {
+    fetchBalanceRef.current().then((result) => {
       if (generation !== balanceGeneration.current) return;
-      if (result.isSuccess && result.data) setBalance(`${result.data.balance} ${result.data.symbol}`);
+      if (result.isSuccess && result.data) setBalance(formatWalletBalance(result.data.balance, result.data.symbol, WALLET_CHAIN_META[chain].nativeSymbol));
     }).catch(() => {}).finally(() => { if (generation === balanceGeneration.current) setBalanceLoading(false); });
-  }, [connected, address, chain, fetchBalance]);
+  }, [connected, address, chain]);
 
   const begin = useCallback((kind: "connect" | "switch", target: WalletChain | null) => {
     if (operationRef.current) return null;
@@ -98,12 +110,13 @@ export default function WalletBridge({ children }: { children: React.ReactNode }
   }, []);
 
   const connect = useCallback(async (target?: WalletChain) => {
+    try { localStorage.removeItem("kol-wallet-user-disconnected"); } catch {}
     setLocallyDisconnected(false);
     const generation = begin("connect", target || null);
     if (generation === null) return;
-    try { await withWalletTimeout(open({ view: "Connect", namespace: target ? namespaceFor(target) : undefined })); }
-    catch (cause) { if (gate.current.isCurrent(generation)) { operationRef.current = null; setOperation(null); setError(walletErrorMessage(cause, "连接钱包失败")); await close().catch(() => {}); } }
-  }, [begin, open, close]);
+    try { await withWalletTimeout(openRef.current({ view: "Connect", namespace: target ? namespaceFor(target) : undefined })); }
+    catch (cause) { if (gate.current.isCurrent(generation)) { operationRef.current = null; setOperation(null); setError(walletErrorMessage(cause, "连接钱包失败")); await closeRef.current().catch(() => {}); } }
+  }, [begin]);
 
   const switchChain = useCallback(async (target: WalletChain) => {
     const targetNamespace = namespaceFor(target);
@@ -113,20 +126,21 @@ export default function WalletBridge({ children }: { children: React.ReactNode }
       if (!accounts[targetNamespace].connected) {
         const next = { kind: "connect" as const, target, generation };
         operationRef.current = next; setOperation(next);
-        await withWalletTimeout(open({ view: "Connect", namespace: targetNamespace }));
+        await withWalletTimeout(openRef.current({ view: "Connect", namespace: targetNamespace }));
         return;
       }
-      await withWalletTimeout(network.switchNetwork(walletNetworkByChain[target]));
+      await withWalletTimeout(switchNetworkRef.current(walletNetworkByChain[target]));
       if (gate.current.isCurrent(generation)) { operationRef.current = null; setOperation(null); }
     } catch (cause) {
       if (gate.current.isCurrent(generation)) { operationRef.current = null; setOperation(null); setError(walletErrorMessage(cause, `切换到 ${WALLET_CHAIN_META[target].name} 失败`)); }
     }
-  }, [begin, accounts, open, network]);
+  }, [begin, accounts]);
 
   useEffect(() => {
     const synchronize = (event: StorageEvent) => {
       if (event.key !== "kol-wallet-sync") return;
       gate.current.cancel(); operationRef.current = null; setOperation(null); setError(null);
+      setLocallyDisconnected(event.newValue === "disconnected");
     };
     window.addEventListener("storage", synchronize);
     return () => window.removeEventListener("storage", synchronize);
@@ -134,21 +148,23 @@ export default function WalletBridge({ children }: { children: React.ReactNode }
 
   const disconnect = useCallback(async () => {
     gate.current.cancel(); operationRef.current = null; balanceGeneration.current += 1; setLocallyDisconnected(true); setOperation(null); setError(null); setBalance(null); setBalanceLoading(false);
-    await close().catch(() => {});
-    await Promise.allSettled([appKitDisconnect({ namespace: "eip155" }), appKitDisconnect({ namespace: "solana" })]);
-    try { localStorage.setItem("kol-wallet-sync", String(Date.now())); } catch {}
-  }, [appKitDisconnect, close]);
+    try { localStorage.setItem("kol-wallet-user-disconnected", "1"); } catch {}
+    await closeRef.current().catch(() => {});
+    await Promise.allSettled([disconnectRef.current({ namespace: "eip155" }), disconnectRef.current({ namespace: "solana" })]);
+    try { localStorage.setItem("kol-wallet-sync", "disconnected"); } catch {}
+  }, []);
 
   const reconnect = useCallback(async (target?: WalletChain) => {
     await disconnect();
+    try { localStorage.removeItem("kol-wallet-user-disconnected"); } catch {}
     setLocallyDisconnected(false);
     const generation = begin("connect", target || null);
     if (generation === null) return;
-    try { await withWalletTimeout(open({ view: "Connect", namespace: target ? namespaceFor(target) : undefined })); }
+    try { await withWalletTimeout(openRef.current({ view: "Connect", namespace: target ? namespaceFor(target) : undefined })); }
     catch (cause) { if (gate.current.isCurrent(generation)) { operationRef.current = null; setOperation(null); setError(walletErrorMessage(cause, "重新连接失败")); } }
-  }, [disconnect, begin, open]);
+  }, [disconnect, begin]);
 
-  const openAccount = useCallback(async () => { await open({ view: "Account", namespace }); }, [open, namespace]);
+  const openAccount = useCallback(async () => { await openRef.current({ view: "Account", namespace }); }, [namespace]);
   const value: WalletContextValue = { ready: true, phase, address, chain, namespace, balance, balanceLoading, error, walletName: walletInfo?.name || null, switchingTo: operation?.kind === "switch" ? operation.target : null, accounts, connect, switchChain, disconnect, reconnect, openAccount };
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
 }

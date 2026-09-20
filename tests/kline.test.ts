@@ -6,6 +6,8 @@ describe("Kline intervals and request cache", () => {
     expect(klineUnavailableReason("bsc", 15)).toContain("暂未收录");
     expect(klineUnavailableReason("bsc", 15)).not.toContain("该链暂不支持");
     expect(klineUnavailableReason("unknown", 15)).toContain("该链暂不支持");
+    expect(klineUnavailableReason("bsc", 15, "timeout")).toContain("超时");
+    expect(klineUnavailableReason("bsc", 15, "upstream")).toContain("上游");
   });
   it("maps all six supported periods to the requested windows", () => {
     expect(KLINE_INTERVALS).toEqual([1, 5, 15, 60, 240, 1440]);

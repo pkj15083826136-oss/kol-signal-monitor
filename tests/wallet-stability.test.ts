@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   chainFromNetwork,
   validWalletAddress,
@@ -6,12 +7,24 @@ import {
   walletConnectionPhase,
   walletErrorMessage,
   walletMatchesTokenChain,
+  formatWalletBalance,
   withWalletTimeout,
 } from "@/lib/wallet/state";
 
 describe("wallet connection stability and multichain safety", () => {
+  it("does not make balance fetching depend on an unstable Reown callback", () => {
+    const source = readFileSync(new URL("../components/wallet/wallet-bridge.tsx", import.meta.url), "utf8");
+    expect(source).not.toMatch(/\[connected,\s*address,\s*chain,\s*fetchBalance\]/);
+    expect(source).toContain("fetchBalanceRef.current()");
+  });
+
   it("treats a valid connected account as connected even when metadata or balance still load", () => {
     expect(walletConnectionPhase({ namespace: "eip155", address: "0x1111111111111111111111111111111111111111", accountStatus: "reconnecting", operation: "connect" })).toBe("connected");
+  });
+
+  it("never renders an undefined native balance", () => {
+    expect(formatWalletBalance(undefined, "BNB", "BNB")).toBeNull();
+    expect(formatWalletBalance("1.25", undefined, "BNB")).toBe("1.25 BNB");
   });
 
   it("represents stale restore, duplicate operations and cancellation without allowing old responses", () => {
