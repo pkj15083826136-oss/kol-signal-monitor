@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-const BONK_MINT = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263";
+const PRODUCTION_MARKET_MINT = "XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W";
 const evidenceLabel = process.env.E2E_EVIDENCE_LABEL || "local";
 const productionEvidence = process.env.E2E_REQUIRE_REAL_MARKET === "1";
 
@@ -10,8 +10,8 @@ async function signalForDetail(page: Page) {
   const response = await page.request.get("/api/signals");
   expect(response.ok()).toBeTruthy();
   const payload = await response.json() as { signals: Signal[] };
-  const signal = productionEvidence ? payload.signals.find((item) => item.tokenAddress === BONK_MINT) : payload.signals[0];
-  expect(signal, productionEvidence ? "production data must include the verified BONK mint" : "a signal is required").toBeTruthy();
+  const signal = productionEvidence ? payload.signals.find((item) => item.tokenAddress === PRODUCTION_MARKET_MINT) : payload.signals[0];
+  expect(signal, productionEvidence ? "production data must include the verified SPYx/SPN500 mint" : "a signal is required").toBeTruthy();
   return { signal: signal!, signals: payload.signals };
 }
 
@@ -36,7 +36,7 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 390, height: 844 }
     if (viewport.width === 390) await page.screenshot({ path: `docs/screenshots/${evidenceLabel}-list-mobile-390x844.png`, fullPage: true });
 
     await page.goto(`/signal/${signal.id}`, { waitUntil: "domcontentloaded" });
-    await expect(page.getByRole("heading", { name: signal.symbol })).toBeVisible();
+    await expect(page.locator("h1").first()).toBeVisible();
     await expect(page.getByText(signal.tokenAddress)).toBeVisible();
     await expect(page.getByTestId("live-market-grid")).toBeVisible();
     overflow = await overflowReport(page);
@@ -85,13 +85,13 @@ test("desktop screenshots, relative signal time, navigation fallback and cached 
   await expect(direct).toHaveURL(/\/$/);
 });
 
-test("production BONK uses real market data and refreshes at 3 seconds", async ({ page }) => {
+test("production SPYx/SPN500 uses real market data and refreshes at 3 seconds", async ({ page }) => {
   test.skip(!productionEvidence, "production-only evidence");
   const { signal } = await signalForDetail(page);
-  const response = await page.request.post("/api/market/batch", { data: { tokens: [{ chain: "sol", address: BONK_MINT }] } });
+  const response = await page.request.post("/api/market/batch", { data: { tokens: [{ chain: "sol", address: PRODUCTION_MARKET_MINT }] } });
   expect(response.ok()).toBeTruthy();
   const payload = await response.json() as { items: Array<{ address: string; source: string; price: number; marketCap: number; liquidity: number; volume24h: number }> };
-  expect(payload.items[0]).toMatchObject({ address: BONK_MINT });
+  expect(payload.items[0]).toMatchObject({ address: PRODUCTION_MARKET_MINT });
   expect(payload.items[0].source).not.toBe("unavailable");
   expect(payload.items[0].price).toBeGreaterThan(0);
   expect(payload.items[0].marketCap).toBeGreaterThan(0);

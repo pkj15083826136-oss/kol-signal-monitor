@@ -140,7 +140,7 @@ export async function getMarketData(chain: string, address: string, options: { u
     liquidity: resolved.liquidity ?? 0, holders: resolved.holderCount, holderSource: resolved.holderSource, holderUpdatedAt: resolved.holderUpdatedAt,
     volume24h: resolved.volume24h ?? 0, pairAddress: string(dex.pairAddress || resolved.pairAddress), dexUrl: string(dex.dexUrl), createdAt: resolved.createdAt ?? 0,
     identityVerified: resolved.identityVerified,
-    sourceStatus: { ave: ave?.identityVerified ? "healthy" : "unavailable", gmgn: gmgn?.identityVerified ? "healthy" : gmgnBackoff ? "rate_limited" : "unavailable", dex: dex.identityVerified ? "healthy" : "unavailable" },
+    sourceStatus: { ...(useAve ? { ave: ave?.identityVerified ? "healthy" as const : "unavailable" as const } : {}), gmgn: gmgn?.identityVerified ? "healthy" : gmgnBackoff ? "rate_limited" : "unavailable", dex: dex.identityVerified ? "healthy" : "unavailable" },
   };
 }
 

@@ -209,6 +209,7 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
   let matchedRows = 0;
   let dataReviewCount = 0;
   let marketConflictCount = 0;
+  const marketHealth = new Map<string, "healthy" | "rate_limited" | "degraded" | "unavailable">();
   let feedErrors: string[] = [];
   const touched = new Map<string, { chain: string; token: string }>();
   try {
@@ -304,7 +305,8 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
       const liveMarket = await getMarketData(chain, token, { useAve: !previousSignal }).catch(() => null);
       if (liveMarket) {
         for (const [source, status] of Object.entries(liveMarket.sourceStatus)) {
-          await recordSourceHealth(db, `market_${source}`, chain, status === "healthy", 0, status === "healthy" ? "" : status, status);
+          const previous = marketHealth.get(source);
+          if (status === "healthy" || previous !== "healthy") marketHealth.set(source, status);
         }
       }
       if (!previousSignal) {
@@ -386,6 +388,9 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
         alert_payload_json: d1Json(alertPayload), id: d1Integer(signalId),
       }).run();
       newSignals += 1;
+    }
+    for (const [source, status] of marketHealth) {
+      await recordSourceHealth(db, `market_${source}`, selectedChain, status === "healthy", 0, status === "healthy" ? "" : status, status);
     }
     const alertDeliveryAfter = await deliverAlerts(db);
     const finishedAt = new Date().toISOString();

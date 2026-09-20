@@ -117,3 +117,88 @@ GitHub Actions `main` 已增加“采集失败必须使 workflow 失败”及“
 - 第三方行情/报价/RPC 都可能限流或降级；失败时 UI 必须显示不可用并阻止交易，不自动重试下单。
 - 代码回滚：将既有 Site 部署回上一个成功版本或 commit `1c49ccc`。
 - D1 回滚：优先使用发布前 Time Travel；若只撤销 Phase 4，可停止交易 flag 后删除空的 `user_trades` 表。存在记录时先导出再由所有者确认，不自动删除。
+
+---
+
+# 2026-09-20 市场数据完整性收尾（取代上方旧生产门禁结论）
+
+## 发布与根因
+
+- 原 Site：`https://kol-signal-monitor.pkj15083826136.chatgpt.site`，未更换项目、D1 或 binding。
+- v41 / `21675f34b95381f8b70a20900ad52165fe69d564`：统一 MarketSnapshot、字段级 last-known-good、K线增量、24H涨跌、历史异常迁移。
+- v42 / `b21996a6489f62ccc439c83af5db0f796e6f7b49`：GMGN 从按代币退避改为数据源全局指数退避。
+- v43 / `837fadf15b7289580de5643f5f88cdf7e51e06be`：市场源健康状态写入；最终聚合修正将随下一版本发布。
+- SPYx/SPN500 根因精确定位在 `lib/batch-market.ts`、`app/api/market/batch/route.ts` 与 `lib/market-live.ts`：Ave `/v2/tokens/price` 是局部行情，旧代码把缺失市值强制成0并整体替换SSR token-detail；Dex pair价格也可在局部刷新中进入同一对象。现在必须通过chain+完整tokenAddress身份校验，Solana大小写敏感；pairAddress不能充当tokenAddress；按字段合并并保留独立来源/时间戳；请求序号、AbortController和receivedAt阻止旧响应回写。
+
+## SPYx/SPN500 生产20次采样
+
+- 合约始终为 `XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W`，pair始终为 `6truu3rZuiB9rKQg4VYC3Dt3QwV7DgwGqXrYUcrvnDDE`，symbol始终为 `SPN500`，identityVerified始终为true。
+- 价格范围 `$767.49469–$769.15266`；市值范围 `$73.0897M–$73.2476M`；holders `75,372–75,373`；20/20没有市值或holders丢失，未复现`$0.2946`数量级错误。
+- 一次批量源退化为 `Ave/GMGN fallback`，完整token-detail字段仍保持；staleFields/conflictFields均为空。
+
+## 四链12个真实合约抽样
+
+每个合约执行3次生产刷新。SPN500、DJT、Czar、ABS、SI、gKIRK、AI、9e9三次均保持有效市值和holders。HYPE、HYDX、COBIE、JERRY各有一次上游token-detail瞬时缺失；接口如实返回局部快照，浏览器字段级LKG不会让已显示的有效市值/holders变成`--`。COBIE一次完整身份数据不可用，未合并到既有快照。
+
+- Solana：SPN500、HYPE（真实精确地址含`RQi5`）、DJT。
+- BSC：Czar、ABS、SI。
+- Base：HYDX、gKIRK、COBIE。
+- Robinhood：9e9、JERRY、AI。
+
+## K线实时更新和API负担
+
+- 六周期均由生产Ave返回真实OHLCV；对SPN500的`1m/5m/15m/1h/4h/1d`短窗口请求均成功，每次只请求最近5根（上游实际返回6点）。
+- timestamp相同更新当前蜡烛，出现新timestamp时追加；切换代币/周期会取消旧请求，失败保留现有图表；缓存避免切回周期再次全量请求。
+- 前台：1m每7.5秒（8次/分钟）；5m/15m每12秒（5次/分钟）；1h/4h/1d每25秒（2.4次/分钟）。后台统一60秒（1次/分钟）；每周期首次仅一次全量请求，之后仅增量5根。
+
+## 简介和24H涨跌
+
+- 已实现GMGN优先、launchpad其次、Ave再次的简介选择，解析Ave appendix，清理HTML/script并限制1200字符；官方简介独立保存到`official_description/description_source/description_updated_at`，不会再写入`gmgn_theme`，AI分析不会冒充官方简介。
+- 生产抽样20个当前公开信号：GMGN市场metadata处于IP rate-limit，Ave对这20个合约均未返回可核验简介，因此GMGN 0、Ave 0、默认提示20。该结果明确是上游限制，不宣称多源确认，也不生成简介。
+- 价格卡使用真实`price_change_24h`，正/负/零分别绿/红/中性；与短暂价格跳动颜色分离。生产截图中可见`+0.74%`。
+
+## 最近50条与HYPE
+
+- 完整逐条处置见 `docs/RECENT_50_DISPOSITION.md`：超过30%误差9条、超过3倍7条、超过10倍4条。
+- 已确认抑制：GLDx、SPCXx、WBTC、CARDS以及此前已抑制的HYPE；DOGE、ABS、智脑、PEPE修正历史展示值但因修正后仍不满足成熟高市值结论而保留。未删除signals记录，未发送企业微信更正。
+- 成熟资产集合只保留真实HYPE `98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g`。错误字符`...RQj5...`已从生产集合和market_reviews移除，只作为不匹配单元测试。
+
+## D1迁移与恢复
+
+- 迁移前只读备份位于忽略提交的 `outputs/d1-backup-pre-v41.json`：signals 72、market_reviews 11、source_health 8、monitor_runs 882行。
+- `0006_abnormal_charles_xavier.sql`仅新增signals简介字段、monitor_runs审核计数、source_health重试/影响字段，并对已确认历史误报做可审计UPDATE；不删除signals、旧列、Site、数据库或binding。
+- 迁移后signals 74行（期间监控新增2条），重复`chain+token_address+threshold`为0；最终outbox为sent 67、suppressed 7，无pending/retry/failed/manual_review积压。迁移回滚优先使用部署前D1 Time Travel/备份；代码可回滚到Sites v40 / `31b8830468842aa73a45aaf28d58b1c0c2818194`。
+
+## 四链连续生产轮次
+
+GitHub Actions Run #26（`35480156770`）使用提交`a54110c`的采集器调用当前生产Site。以下每链三轮连续success；时间为北京时间，feed_errors均为空，market_conflict均为0。
+
+| 链 | run id | 开始—结束 | 抓取 | 匹配 | 新交易 | 新信号 | data_review | 错误 |
+|---|---:|---|---:|---:|---:|---:|---:|---|
+| Solana | 890 | 09:09:19—09:09:51 | 200 | 86 | 37 | 0 | 0 | 无 |
+| Solana | 894 | 09:14:05—09:14:41 | 200 | 87 | 43 | 0 | 0 | 无 |
+| Solana | 898 | 09:18:53—09:19:34 | 200 | 85 | 28 | 0 | 0 | 无 |
+| BSC | 887 | 09:06:01—09:06:26 | 200 | 104 | 18 | 0 | 0 | 无 |
+| BSC | 891 | 09:10:42—09:11:11 | 200 | 104 | 29 | 0 | 0 | 无 |
+| BSC | 895 | 09:15:32—09:15:59 | 200 | 107 | 22 | 0 | 0 | 无 |
+| Base | 888 | 09:07:17—09:07:27 | 121 | 116 | 0 | 0 | 0 | 无 |
+| Base | 892 | 09:12:01—09:12:11 | 121 | 116 | 0 | 0 | 0 | 无 |
+| Base | 896 | 09:16:50—09:16:59 | 121 | 116 | 0 | 0 | 0 | 无 |
+| Robinhood | 889 | 09:08:18—09:08:28 | 200 | 100 | 1 | 0 | 0 | 无 |
+| Robinhood | 893 | 09:13:02—09:13:14 | 200 | 100 | 7 | 0 | 0 | 无 |
+| Robinhood | 897 | 09:17:51—09:18:02 | 200 | 100 | 0 | 0 | 0 | 无 |
+
+12轮均无HTTP 401、D1_TYPE_ERROR、undefined bind或重复阶段预警。企业微信仅处理真实业务信号；没有发送测试消息，所有已完成记录attempts=1，未发现同阶段重复发送。
+
+## 最终验证与截图
+
+- lint：0 error / 0 warning；TypeScript通过；Vitest 18文件/71项全部通过；build通过。
+- 生产Playwright：4/4通过，覆盖375×812、390×844、1440×1000无横向溢出、返回按钮、六周期缓存、SPYx真实API以及前台3秒刷新。
+- `pnpm audit --prod`仍为1 high + 3 moderate，全部在Feature Flag关闭的钱包依赖链；详情和暂缓原因沿用上方依赖审计，未为消除告警强制跨主版本override。
+- 截图：`docs/screenshots/production-v43-list-desktop-1440x1000.png`、`production-v43-list-mobile-390x844.png`、`production-v43-detail-desktop-1440x1000.png`、`production-v43-detail-mobile-390x844.png`。
+- 交易相关Feature Flag继续全部false；未连接真实钱包、未真实报价、未测试网/主网签名或广播。
+
+## 尚存上游限制
+
+- GMGN市场metadata当前为`rate_limited`，全局指数退避并带抖动；Ave和Dex继续提供行情。当前20个简介样本无可核验文本，因此简介功能代码完成但真实内容命中率尚不能验收为通过。
+- 生产data_review在本次观察窗仅出现少量，现有market_reviews也不足20条data_review，不能伪造“随机抽查20条”。当前新增计数可持续积累，达到20条后再做人工抽样；已有门禁原因仍区分market_cap_unknown、creation_time_unknown、identity unverified和conflict。
