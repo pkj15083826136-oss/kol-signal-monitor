@@ -292,6 +292,7 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
       touched.set(`${row.chain}:${row.token_address}`, { chain: row.chain, token: row.token_address });
     }
 
+    let aveChecked = false;
     for (const { chain, token } of touched.values()) {
       const aggregate = await db.prepare("SELECT COUNT(*) holder_count, COALESCE(SUM(buy_usd),0) total_buy_usd, COALESCE(SUM(balance),0) total_token_amount FROM token_wallets WHERE chain = ? AND token_address = ? AND balance > 0.000001")
         .bind(chain, token).first<{ holder_count: number; total_buy_usd: number; total_token_amount: number }>();
@@ -300,9 +301,11 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
       const due = dueAlertThreshold(holderCount, alertedRows.results.map((row) => Number(row.threshold)));
       const previousSignal = await db.prepare("SELECT id, price FROM signals WHERE chain = ? AND token_address = ? ORDER BY alerted_at DESC LIMIT 1").bind(chain, token).first<{ id: number; price: string }>();
       if (!previousSignal && holderCount < ALERT_THRESHOLDS[0]) continue;
-      // Ave CU is used once for a token's first signal; routine snapshots use
-      // public market feeds so continuous monitoring does not burn the quota.
-      const liveMarket = await getMarketData(chain, token, { useAve: !previousSignal }).catch(() => null);
+      // Verify one token with Ave per monitor pass so source health is real,
+      // while routine snapshots otherwise use public feeds to cap CU usage.
+      const useAve = !previousSignal || !aveChecked;
+      const liveMarket = await getMarketData(chain, token, { useAve }).catch(() => null);
+      if (useAve) aveChecked = true;
       if (liveMarket) {
         for (const [source, status] of Object.entries(liveMarket.sourceStatus)) {
           const previous = marketHealth.get(source);
