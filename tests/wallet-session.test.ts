@@ -14,9 +14,18 @@ function provider(overrides: Partial<ReadonlyWalletProvider> = {}): ReadonlyWall
 describe("readonly wallet session", () => {
   it("connects, reads balance, switches chain and disconnects without signing", async () => {
     const session = new ReadonlyWalletSession(provider());
-    expect(await session.connect()).toMatchObject({ status: "connected", address: "0x1234", balance: "1.25 ETH" });
+    expect(await session.connect()).toMatchObject({ status: "connected", address: "0x1234" });
+    await vi.waitFor(() => expect(session.snapshot().balance).toBe("1.25 ETH"));
     expect(await session.switchChain("bsc")).toMatchObject({ status: "connected", chain: "bsc" });
     expect(await session.disconnect()).toMatchObject({ status: "idle", address: null });
+  });
+  it("does not keep the main connection loading while balance is pending", async () => {
+    let resolveBalance!: (value: string) => void;
+    const balance = new Promise<string>((resolve) => { resolveBalance = resolve; });
+    const session = new ReadonlyWalletSession(provider({ balance: vi.fn(() => balance) }));
+    expect(await session.connect()).toMatchObject({ status: "connected", address: "0x1234", balance: null });
+    resolveBalance("2 BNB");
+    await vi.waitFor(() => expect(session.snapshot().balance).toBe("2 BNB"));
   });
   it("surfaces wallet rejection", async () => {
     const session = new ReadonlyWalletSession(provider({ connect: vi.fn(async () => { throw new Error("用户拒绝连接"); }) }));

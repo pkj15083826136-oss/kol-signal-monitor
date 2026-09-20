@@ -20,15 +20,20 @@ export const emptyWalletSnapshot: WalletSnapshot = { status: "idle", address: nu
 
 export class ReadonlyWalletSession {
   private value: WalletSnapshot = { ...emptyWalletSnapshot };
+  private generation = 0;
   constructor(private readonly provider: ReadonlyWalletProvider) {}
   snapshot() { return { ...this.value }; }
 
   async connect() {
+    const generation = ++this.generation;
     this.value = { ...emptyWalletSnapshot, status: "connecting" };
     try {
       const account = await this.provider.connect();
-      const balance = await this.provider.balance();
-      this.value = { status: "connected", address: account.address, chain: account.chain, balance, error: null };
+      if (generation !== this.generation) return this.snapshot();
+      this.value = { status: "connected", address: account.address, chain: account.chain, balance: null, error: null };
+      void this.provider.balance().then((balance) => {
+        if (generation === this.generation && this.value.status === "connected") this.value = { ...this.value, balance };
+      }).catch(() => {});
     } catch (error) {
       this.value = { ...emptyWalletSnapshot, status: "error", error: walletError(error, "连接已取消") };
     }
@@ -48,6 +53,7 @@ export class ReadonlyWalletSession {
   }
 
   async disconnect() {
+    this.generation += 1;
     await this.provider.disconnect();
     this.value = { ...emptyWalletSnapshot };
     return this.snapshot();

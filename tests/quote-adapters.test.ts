@@ -3,10 +3,10 @@ import zeroXFixture from "./fixtures/zero-x-quote.json";
 import jupiterFixture from "./fixtures/jupiter-quote.json";
 import { zeroXAdapter } from "@/lib/trade/adapters/zero-x";
 import { buildJupiterSwapRequest, JUPITER_PROGRAM, jupiterAdapter } from "@/lib/trade/adapters/jupiter";
-import { applyQuoteRisk, validateQuoteRequest, type QuoteRequest } from "@/lib/trade/quote";
+import { applyQuoteRisk, quoteScopeKey, quoteWalletContextMatches, validateQuoteRequest, type QuoteRequest } from "@/lib/trade/quote";
 
-const evmRequest: QuoteRequest = { chain: "base", sellToken: zeroXFixture.sellToken, buyToken: zeroXFixture.buyToken, sellAmount: "1000000", taker: "0x5555555555555555555555555555555555555555", slippageBps: 100 };
-const solRequest: QuoteRequest = { chain: "sol", sellToken: jupiterFixture.inputMint, buyToken: jupiterFixture.outputMint, sellAmount: "100000000", taker: "11111111111111111111111111111111", slippageBps: 100 };
+const evmRequest: QuoteRequest = { chain: "base", sellToken: zeroXFixture.sellToken, buyToken: zeroXFixture.buyToken, sellAmount: "1000000", taker: "0x5555555555555555555555555555555555555555", slippageBps: 100, walletNamespace: "eip155", walletChainId: "8453" };
+const solRequest: QuoteRequest = { chain: "sol", sellToken: jupiterFixture.inputMint, buyToken: jupiterFixture.outputMint, sellAmount: "100000000", taker: "11111111111111111111111111111111", slippageBps: 100, walletNamespace: "solana", walletChainId: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp" };
 
 describe("quote adapters and safety gate", () => {
   it("normalizes official 0x and Jupiter fixture shapes", () => {
@@ -35,5 +35,11 @@ describe("quote adapters and safety gate", () => {
   });
   it("validates addresses, amount and slippage before any upstream call", () => {
     expect(validateQuoteRequest({ ...evmRequest, sellToken: "bad", sellAmount: "0", slippageBps: 999 })).toHaveLength(3);
+  });
+  it("rejects a quote when wallet namespace or chain differs and invalidates its scope after switching", () => {
+    expect(quoteWalletContextMatches(evmRequest)).toBe(true);
+    expect(validateQuoteRequest({ ...evmRequest, walletChainId: "56" })).toContain("当前钱包网络与代币网络不一致");
+    expect(validateQuoteRequest({ ...solRequest, walletNamespace: "eip155" })).toContain("当前钱包网络与代币网络不一致");
+    expect(quoteScopeKey(evmRequest)).not.toBe(quoteScopeKey({ ...evmRequest, walletChainId: "56" }));
   });
 });

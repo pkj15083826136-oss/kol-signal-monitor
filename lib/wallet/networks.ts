@@ -15,6 +15,13 @@ export const robinhood = {
 
 export const walletNetworks = [solana, bsc, base, robinhood] as [AppKitNetwork, ...AppKitNetwork[]];
 
+export const walletNetworkByChain = {
+  sol: solana,
+  bsc,
+  base,
+  robinhood,
+} as const satisfies Record<"sol" | "bsc" | "base" | "robinhood", AppKitNetwork>;
+
 export const supportedWalletChains = [
   { key: "sol", name: "Solana", chainId: solana.id },
   { key: "bsc", name: "BSC", chainId: bsc.id },

@@ -2,10 +2,15 @@
 @import "tw-animate-css";
 @import "../vendor/shadcn-tailwind-4.13.0.css";
 
-.wallet-entry .wallet-live { display: none; }
-[data-wallet-ready="true"] .wallet-entry .wallet-disabled { display: none; }
-[data-wallet-ready="true"] .wallet-entry .wallet-live { display: block; }
-.wallet-disabled { display: inline-flex; height: 36px; align-items: center; gap: 6px; border-radius: 10px; border: 1px solid rgb(103 232 249 / 0.2); background: rgb(103 232 249 / 0.08); padding: 0 12px; color: rgb(165 243 252); font-size: 13px; }
+.wallet-trigger { display: inline-flex; height: 36px; min-width: 0; align-items: center; justify-content: center; gap: 6px; border-radius: 10px; border: 1px solid rgb(103 232 249 / 0.2); background: rgb(103 232 249 / 0.08); padding: 0 12px; color: rgb(207 250 254); font-size: 13px; transition: border-color .15s, background .15s; }
+.wallet-trigger:hover:not(:disabled) { border-color: rgb(103 232 249 / 0.38); background: rgb(103 232 249 / 0.13); }
+.wallet-trigger:disabled { cursor: wait; color: rgb(100 116 139); }
+.wallet-menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 80; width: min(320px, calc(100vw - 24px)); overflow: hidden; border: 1px solid rgb(255 255 255 / .1); border-radius: 14px; background: rgb(11 16 24 / .98); box-shadow: 0 18px 60px rgb(0 0 0 / .5); backdrop-filter: blur(18px); }
+.wallet-chain { display: inline-flex; min-width: 0; align-items: center; justify-content: center; gap: 5px; border: 1px solid rgb(255 255 255 / .08); border-radius: 8px; padding: 8px 6px; color: rgb(148 163 184); font-size: 12px; }
+.wallet-chain:hover:not(:disabled) { border-color: rgb(103 232 249 / .24); color: rgb(207 250 254); }
+.wallet-chain-active { border-color: rgb(52 211 153 / .28); background: rgb(52 211 153 / .09); color: rgb(167 243 208); }
+.wallet-menu-action { display: flex; width: 100%; align-items: center; gap: 7px; border-radius: 8px; padding: 8px 7px; color: rgb(148 163 184); font-size: 12px; }
+.wallet-menu-action:hover { background: rgb(255 255 255 / .04); color: rgb(226 232 240); }
 
 :root {
   --background: #070a0f; --foreground: #edf2f7; --card: #0b1018; --card-foreground: #edf2f7;

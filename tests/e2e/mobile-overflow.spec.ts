@@ -4,6 +4,7 @@ const PRODUCTION_MARKET_MINT = "XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W";
 const WOJAK_MINT = "8J69rbLTzWWgUJziFY8jeu5tDwEPBwUz4pKBMr5rpump";
 const evidenceLabel = process.env.E2E_EVIDENCE_LABEL || "local";
 const productionEvidence = process.env.E2E_REQUIRE_REAL_MARKET === "1";
+const walletEvidence = process.env.E2E_REQUIRE_WALLET === "1";
 
 type Signal = { id: number; tokenAddress: string; symbol: string; createdAt: string };
 
@@ -105,6 +106,24 @@ test("production SPYx/SPN500 uses real market data and refreshes at 3 seconds", 
   expect(batchRequests).toBeGreaterThanOrEqual(3);
   await expect(page.getByText("数据源不可用")).toHaveCount(0);
   await expect(page.getByText("Solana", { exact: true })).toBeVisible();
+});
+
+test("production wallet initializes, closes a cancelled connection and never overflows", async ({ page }) => {
+  test.skip(!walletEvidence, "production wallet-only evidence");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await expect(page.locator("[data-wallet-enabled='true'][data-wallet-ready='true']")).toBeVisible({ timeout: 20_000 });
+  const connect = page.getByRole("button", { name: "连接钱包", exact: true });
+  await expect(connect).toBeEnabled();
+  await connect.click();
+  await expect(page.locator("appkit-modal")).toBeAttached();
+  await page.keyboard.press("Escape");
+  await expect(connect).toBeEnabled({ timeout: 20_000 });
+  await expect(connect).not.toHaveAttribute("aria-busy", "true");
+  const overflow = await overflowReport(page);
+  expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth);
+  expect(overflow.offenders).toEqual([]);
+  await page.screenshot({ path: `docs/screenshots/${evidenceLabel}-wallet-mobile-390x844.png`, fullPage: true });
 });
 
 test("production WOJAK loads full history before incremental updates and preserves it for two minutes", async ({ page }) => {
