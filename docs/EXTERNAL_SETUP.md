@@ -43,4 +43,12 @@
 - 监控 Secret 同步：在本地密码管理器生成同一个高强度随机值；先到原 Sites 项目 **Settings → Environment variables** 替换 secret `MONITOR_SECRET`，再到 GitHub 仓库 `pkj15083826136-oss/kol-signal-monitor` 的 **Settings → Secrets and variables → Actions → Repository secrets** 更新同名 `MONITOR_SECRET`。不要在聊天、终端、截图或文档中粘贴该值。两端完成后从 **Actions → KOL Signal Monitor → Run workflow** 手动触发一次，再检查四链各三轮。
 - 企业微信群只发送一条明确标记“系统链路测试”的消息，执行前单独确认。
 - 测试网和主网均由用户逐笔检查钱包弹窗并签名；主网广播开关在验收前保持关闭。
-- GitHub Actions 仓库 secret `MONITOR_SECRET` 必须与现有 Sites secret 同值。当前生产调度请求返回 401，因此四链连续三轮生产验证在该配置修复前无法完成；不得改回 `GMGN_API_KEY`。
+- GitHub Actions 仓库 secret `MONITOR_SECRET` 已与现有 Sites secret 同步；Actions Run #27为40/40成功，四链连续三轮生产门禁已完成。不得改回 `GMGN_API_KEY`。
+
+## 钱包与测试网下一步（2026-09-20）
+
+- Reown：在 Dashboard 为现有生产域名 `https://kol-signal-monitor.pkj15083826136.chatgpt.site`、`http://localhost:3000` 和本地实际验收源配置 allowlist，并把projectId作为 Sites secret `REOWN_PROJECT_ID` 保存。不要在聊天、源码或日志中粘贴私钥、助记词或钱包签名。
+- 只读钱包通过真实验收后才可把`FEATURE_WALLET_CONNECT`单独改为true；报价、测试网、主网及逐链主网开关仍保持false。
+- 0x官方当前明确不支持测试网；BSC Testnet（97）、Base Sepolia（84532）和Robinhood Testnet（46630）需要项目所有者/安全审核人批准的测试Router与测试代币，不能把0x主网报价当作测试网验收。
+- Solana Devnet需要经审核的测试交换program、测试mint和专用测试钱包；没有可核验的Jupiter Devnet聚合路由时只运行确定性mock状态机，不广播主网交易。
+- 测试网仅使用专门钱包和水龙头资产，由用户逐笔确认；服务端不接收私钥、助记词、签名或完整signed transaction。

@@ -1,4 +1,18 @@
-# Phase 0.1—4 最终配置前验收记录（Phase 0 生产门禁未关闭）
+# Phase 0.1—4 最终验收记录（Phase 0 生产门禁已关闭）
+
+## 2026-09-20 K线历史、微小价格与钱包/测试网准入复核
+
+- 生产发布：原 Sites 项目 Version 48，提交 `e8e7c06529dc90fb0586dee2f027e8fcb8441a77`；Version 47 / `e6b70d6d102f7f3e1ca24add347bb6754961eb04` 完成K线数据模型与动态价格精度，Version 48修复顶部微小价格被截断。Site、D1及binding均未更换。
+- 根因：`app/api/market/kline/route.ts` 对缺失的 `limit` 执行 `Number(null)` 得到 `0`，随后被夹到最小值2，导致首次周期加载误用2根窗口；前端旧实现又没有把完整历史与实时尾部作为两个缓存区管理。现在缺失limit保持`undefined`并使用周期默认完整窗口，缓存键严格为`chain + tokenAddress + interval`，状态分别保存`historyBars/liveTailBars/mergedBars/lastFullFetchAt/lastIncrementalFetchAt/isHistoryLoaded/isLive`。
+- 增量行为：相同timestamp更新、更新的timestamp追加、更旧timestamp就地替换；空响应或失败保留既有历史。完整历史加载前不启动5根尾部轮询，尾部响应不会调用`setData(lastFiveBars)`覆盖历史。
+- WOJAK生产证据：1m完整首载481根，20秒后仍481根（1次全量、2次增量）；切换5m得到121根，再切回1m立即恢复481根且全量请求计数不增加。独立两分钟Playwright用例最终显示483根，证明新蜡烛可追加且历史没有降为5根。
+- 六周期生产首载（WOJAK）：1m 481、5m 121、15m 121、1h 169、4h 181、1d 181。四链各3个真实代币抽样结果按真实创建时长保留：Solana的GMEx为481/121/121/169/181/43、DJT为481/121/121/169/63/12；BSC的BIAOGE为481/121/121/169/112/33、Czar为481/121/41/11/3/2、ABS为111/53/上游瞬时空响应/12/3/2；Base两个成熟样本分别为481/121/121/169/181/32与481/121/121/169/181/64，年轻样本为21/14/12/11/6/3；Robinhood的URANUS为480/120/109/37/13/5、9e9为480/120/87/22/5/1、JERRY为480/120/120/42/11/2。顺序均为1m/5m/15m/1h/4h/1d；年轻币少量历史是上游真实可用量，不补假K线。
+- 微小价格：统一格式化覆盖顶部、图表轴/最新价/OHLC与交易面板。八组断言分别为`$1,234.56`、`$92.1549`、`$0.2946`、`$0.0021481`、`$0.00002246`、`$0.00000029913`、`$0`、`--`。WOJAK当前图表轴显示8位小数，`precision=8`、`minMove=0.00000001`，不再显示`0.00`。
+- 自动化：lint通过；TypeScript通过；Vitest 18文件/73项通过；build通过。生产Playwright 5/5通过，覆盖375×812、390×844、六周期缓存、3秒行情刷新以及两分钟历史保持。`pnpm audit --prod`仍为1 high + 3 moderate，均为钱包依赖的传递告警；钱包开关关闭，未用override强行跨主版本。
+- 截图：`docs/screenshots/production-v48-list-desktop-1440x1000.png`、`production-v48-list-mobile-390x844.png`、`production-v48-detail-desktop-1440x1000.png`、`production-v48-detail-mobile-390x844.png`、`production-v48-wojak-small-price-axis.png`。
+- 钱包准入：代码层Reown AppKit、Wagmi/Viem、Solana Adapter以及连接拒绝、切链失败、余额读取、断开清理的mock测试通过；生产缺少`REOWN_PROJECT_ID`和Reown允许域名确认，因此`FEATURE_WALLET_CONNECT`仍为false，未伪称真实Phantom/Solflare/MetaMask/WalletConnect验收通过。
+- 测试网准入：状态机mock覆盖精确额度授权、授权与交易分次确认、用户拒签、报价过期、余额不足、RPC/授权/交易/确认失败、记录边界禁止私钥/助记词/签名材料；D1通过`UNIQUE(chain, tx_hash)`和upsert实现幂等。0x官方明确不支持测试网，所以BSC Testnet、Base Sepolia及Robinhood Testnet不能使用0x完成真实聚合器验收；Solana Jupiter也没有取得可核验的Devnet聚合路由。未配置获批测试Router/program与专用测试钱包前，`FEATURE_TRADE_TESTNET`保持false。
+- 最终开关：`FEATURE_LIVE_MARKET=true`；`FEATURE_WALLET_CONNECT=false`、`FEATURE_TRADE_QUOTE=false`、`FEATURE_TRADE_TESTNET=false`、`FEATURE_TRADE_MAINNET=false`，以及SOL/BSC/Base/Robinhood逐链主网开关全部false。没有真实买卖、授权、签名或资金操作。
 
 ## 2026-09-20 UI 与实时行情升级（生产已发布）
 
