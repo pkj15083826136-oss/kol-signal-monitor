@@ -2,7 +2,8 @@
 
 验收时间：2026-09-21（北京时间）  
 原 Site：`https://kol-signal-monitor.pkj15083826136.chatgpt.site/`  
-Stage A 首次发布：Sites Version 57 / `4c73d976165c488c7ea03beb4754e208444f9952`
+Stage A 行情切换发布：Sites Version 57 / `4c73d976165c488c7ea03beb4754e208444f9952`  
+当前生产（遥测聚合修复）：Sites Version 58 / `d7891abb3c7586a226d9eb824f75da7ac111f919`
 
 ## 已完成并通过
 
@@ -42,6 +43,8 @@ K线较少的BSC/Robinhood样本均为年轻代币的真实历史长度。两次
 - 迁移均为增量schema变更，无DELETE、DROP、历史signal重发或数据回填。
 
 Stage A第一轮压力采样（修正遥测聚合前）产生116条桶样本。市场样本：Solana 20/21、BSC 11/11、Base 3/3、Robinhood 3/3；K线样本含故意并发压力造成的429与fallback失败，因此不能作为7天SLA。该批数据保留为压力基线，不写成Stage B通过。
+
+Version 58生产复核：同一Base WETH市场桶连续两次观测后，`observation_count=2`、`request_count=2`、`success=2`、`rate_limited=0`，证明重试与重复观测会被聚合而非丢弃。
 
 ## 已实现但仍在采样
 
