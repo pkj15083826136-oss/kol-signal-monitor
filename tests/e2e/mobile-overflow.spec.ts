@@ -27,17 +27,27 @@ async function overflowReport(page: Page) {
   });
 }
 
+async function gotoWithRetry(page: Page, url: string) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await page.goto(url, { waitUntil: "domcontentloaded" });
+    const browserError = page.getByRole("heading", { name: "This page couldn’t load" });
+    if (!(await browserError.isVisible().catch(() => false))) return;
+    await page.waitForTimeout(500);
+  }
+  throw new Error(`PAGE_LOAD_FAILED:${url}`);
+}
+
 for (const viewport of [{ width: 375, height: 812 }, { width: 390, height: 844 }]) {
   test(`list and detail fit ${viewport.width}x${viewport.height}`, async ({ page }) => {
     const { signal } = await signalForDetail(page);
     await page.setViewportSize(viewport);
-    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await gotoWithRetry(page, "/");
     let overflow = await overflowReport(page);
     expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth);
     expect(overflow.offenders).toEqual([]);
     if (viewport.width === 390) await page.screenshot({ path: `docs/screenshots/${evidenceLabel}-list-mobile-390x844.png`, fullPage: true });
 
-    await page.goto(`/signal/${signal.id}`, { waitUntil: "domcontentloaded" });
+    await gotoWithRetry(page, `/signal/${signal.id}`);
     await expect(page.locator("h1").first()).toBeVisible();
     await expect(page.getByText(signal.tokenAddress)).toBeVisible();
     await expect(page.getByTestId("live-market-grid")).toBeVisible();
@@ -51,7 +61,7 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 390, height: 844 }
 test("desktop screenshots, relative signal time, navigation fallback and cached Kline periods", async ({ page, context }) => {
   const { signal, signals } = await signalForDetail(page);
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await gotoWithRetry(page, "/");
   await expect(page.getByText("价格", { exact: true })).toHaveCount(0);
   if (signals.length > 1 && signals[0].createdAt !== signals[1].createdAt) {
     const timeCells = page.getByText(/刚刚|分钟前|小时前|天前|\d{4}-\d{2}-\d{2}/);
@@ -111,13 +121,14 @@ test("production SPYx/SPN500 uses real market data and refreshes at 3 seconds", 
 test("production wallet initializes, closes a cancelled connection and never overflows", async ({ page }) => {
   test.skip(!walletEvidence, "production wallet-only evidence");
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await gotoWithRetry(page, "/");
   await expect(page.locator("[data-wallet-enabled='true'][data-wallet-ready='true']")).toBeVisible({ timeout: 20_000 });
   const connect = page.getByRole("button", { name: "连接钱包", exact: true });
   await expect(connect).toBeEnabled();
   await connect.click();
-  await expect(page.locator("appkit-modal")).toBeAttached();
+  await expect(page.getByRole("alertdialog")).toBeVisible({ timeout: 15_000 });
   await page.keyboard.press("Escape");
+  await expect(page.getByRole("alertdialog")).not.toBeVisible({ timeout: 15_000 });
   await expect(connect).toBeEnabled({ timeout: 20_000 });
   await expect(connect).not.toHaveAttribute("aria-busy", "true");
   const overflow = await overflowReport(page);
