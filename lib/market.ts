@@ -41,7 +41,7 @@ const emptyMarket: MarketData = { name: "", symbol: "", logo: "", description: "
 const dexChain: Record<string, string> = { sol: "solana", bsc: "bsc", base: "base", robinhood: "robinhood" };
 const geckoChain: Record<string, string> = { sol: "solana", bsc: "bsc", base: "base" };
 const aveChain: Record<string, string> = { sol: "solana", bsc: "bsc", base: "base", robinhood: "robinhood" };
-const gmgnBackoff = new Map<string, BackoffState>();
+let gmgnBackoff: BackoffState | undefined;
 
 function record(value: unknown): JsonRecord { return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {}; }
 function number(value: unknown): number { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : 0; }
@@ -95,16 +95,15 @@ async function getDexMarket(chain: string, address: string): Promise<MarketData>
 }
 
 async function getGmgnPublicMarket(chain: string, address: string): Promise<TokenMarketCandidate | null> {
-  const key = `${chain}:${chain === "sol" ? address : address.toLowerCase()}`;
-  if (!canRequest(gmgnBackoff.get(key), Date.now())) return null;
+  if (!canRequest(gmgnBackoff, Date.now())) return null;
   try {
     const response = await fetch(`https://gmgn.ai/defi/quotation/v1/tokens/${chain}/${encodeURIComponent(address)}`, {
       headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(7000),
     });
-    if (!response.ok) { gmgnBackoff.set(key, nextBackoff(gmgnBackoff.get(key), Date.now(), response.status === 429, Math.floor(Math.random() * 1000))); return null; }
-    gmgnBackoff.delete(key);
+    if (!response.ok) { gmgnBackoff = nextBackoff(gmgnBackoff, Date.now(), response.status === 429, Math.floor(Math.random() * 1000)); return null; }
+    gmgnBackoff = undefined;
     return parseGmgnToken(await response.json(), chain, address);
-  } catch { gmgnBackoff.set(key, nextBackoff(gmgnBackoff.get(key), Date.now(), false, Math.floor(Math.random() * 1000))); return null; }
+  } catch { gmgnBackoff = nextBackoff(gmgnBackoff, Date.now(), false, Math.floor(Math.random() * 1000)); return null; }
 }
 
 async function getAveMarket(chain: string, address: string): Promise<TokenMarketCandidate | null> {
