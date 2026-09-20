@@ -2,6 +2,8 @@ import { env } from "cloudflare:workers";
 import { KLINE_META, klineUnavailableReason, type KlineInterval } from "@/lib/kline";
 import { parseAveToken, parseGmgnToken, resolveTokenMarket, tokenAddressEquals, type MarketCapKind, type MarketSource, type TokenMarketCandidate } from "@/lib/token-market";
 import { canRequest, nextBackoff, type BackoffState } from "@/lib/source-backoff";
+import { OKX_CHAIN_INDEX, OkxMarketClient, OkxRequestError, okxCredentialsFromEnv, type OkxRequestMeta, type SupportedMarketChain } from "@/lib/providers/okx";
+import { getTokenInfo as getGmgnTokenInfo } from "@/lib/gmgn";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -12,11 +14,14 @@ export type MarketData = {
   description: string;
   descriptionSource: string | null;
   descriptionUpdatedAt: string | null;
+  website: string;
+  socials: Record<string, string>;
   price: number;
   priceChange24h: number | null;
   change24hSource: MarketSource | null;
   change24hUpdatedAt: string | null;
   marketCap: number;
+  fdv: number | null;
   filterMarketCap: number | null;
   marketCapKind: MarketCapKind;
   marketCapSource: MarketSource | null;
@@ -37,14 +42,15 @@ export type MarketData = {
 
 export type Candle = { time: number; open: number; high: number; low: number; close: number; volume: number };
 export type KlineFailureKind = "unsupported" | "unindexed" | "timeout" | "upstream";
-export type KlineResult = { candles: Candle[]; source: string; reason: string; failureKind?: KlineFailureKind };
+export type KlineResult = { candles: Candle[]; source: string; reason: string; failureKind?: KlineFailureKind; providerMeta?: OkxRequestMeta };
 
-const emptyMarket: MarketData = { name: "", symbol: "", logo: "", description: "", descriptionSource: null, descriptionUpdatedAt: null, price: 0, priceChange24h: null, change24hSource: null, change24hUpdatedAt: null, marketCap: 0, filterMarketCap: null, marketCapKind: null, marketCapSource: null, marketDataConflict: false, marketCapCandidates: {}, selectionReason: "market cap unavailable", liquidity: 0, holders: null, holderSource: null, holderUpdatedAt: null, volume24h: 0, pairAddress: "", dexUrl: "", createdAt: 0, identityVerified: false, sourceStatus: {} };
+const emptyMarket: MarketData = { name: "", symbol: "", logo: "", description: "", descriptionSource: null, descriptionUpdatedAt: null, website: "", socials: {}, price: 0, priceChange24h: null, change24hSource: null, change24hUpdatedAt: null, marketCap: 0, fdv: null, filterMarketCap: null, marketCapKind: null, marketCapSource: null, marketDataConflict: false, marketCapCandidates: {}, selectionReason: "market cap unavailable", liquidity: 0, holders: null, holderSource: null, holderUpdatedAt: null, volume24h: 0, pairAddress: "", dexUrl: "", createdAt: 0, identityVerified: false, sourceStatus: {} };
 const dexChain: Record<string, string> = { sol: "solana", bsc: "bsc", base: "base", robinhood: "robinhood" };
 const geckoChain: Record<string, string> = { sol: "solana", bsc: "bsc", base: "base" };
 const aveChain: Record<string, string> = { sol: "solana", bsc: "bsc", base: "base", robinhood: "robinhood" };
 const geckoPoolCache = new Map<string, { address: string; expiresAt: number }>();
 let gmgnBackoff: BackoffState | undefined;
+let okxClient: OkxMarketClient | undefined;
 
 function record(value: unknown): JsonRecord { return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {}; }
 function number(value: unknown): number { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : 0; }
@@ -55,6 +61,12 @@ function timestamp(value: unknown): number {
   return parsed < 1e12 ? parsed * 1000 : parsed;
 }
 function runtimeEnv(name: string): string { const value = (env as unknown as Record<string, unknown>)[name]; return typeof value === "string" ? value : ""; }
+function getOkxClient() {
+  const credentials = okxCredentialsFromEnv(env as unknown as Record<string, unknown>);
+  if (!credentials) return undefined;
+  okxClient ??= new OkxMarketClient(credentials);
+  return okxClient;
+}
 async function fetchWithRetry(url: string, init: RequestInit, attempts = 2): Promise<Response> {
   let response: Response | undefined;
   let error: unknown;
@@ -89,24 +101,21 @@ async function getDexMarket(chain: string, address: string): Promise<MarketData>
   const base = record(pair.baseToken);
   const info = record(pair.info);
   return {
-    name: string(base.name), symbol: string(base.symbol), logo: string(info.imageUrl), description: "", descriptionSource: null, descriptionUpdatedAt: null,
-    price: number(pair.priceUsd), priceChange24h: Number.isFinite(Number(record(pair.priceChange).h24)) ? Number(record(pair.priceChange).h24) : null, change24hSource: "dex", change24hUpdatedAt: new Date().toISOString(), marketCap: number(pair.fdv), filterMarketCap: null, marketCapKind: number(pair.fdv) > 0 ? "fdv" : null, marketCapSource: number(pair.fdv) > 0 ? "dex" : null, marketDataConflict: false, marketCapCandidates: {}, selectionReason: "pair response provides FDV only",
+    name: string(base.name), symbol: string(base.symbol), logo: string(info.imageUrl), description: "", descriptionSource: null, descriptionUpdatedAt: null, website: "", socials: {},
+    price: number(pair.priceUsd), priceChange24h: Number.isFinite(Number(record(pair.priceChange).h24)) ? Number(record(pair.priceChange).h24) : null, change24hSource: "dex", change24hUpdatedAt: new Date().toISOString(), marketCap: 0, fdv: number(pair.fdv) || null, filterMarketCap: null, marketCapKind: null, marketCapSource: null, marketDataConflict: false, marketCapCandidates: {}, selectionReason: "pair response provides FDV only; FDV is not market cap",
     liquidity: number(record(pair.liquidity).usd), holders: null, holderSource: null, holderUpdatedAt: null, volume24h: number(record(pair.volume).h24),
     pairAddress: string(pair.pairAddress), dexUrl: string(pair.url), createdAt: timestamp(pair.pairCreatedAt),
     identityVerified: tokenAddressEquals(chain, string(base.address), address), sourceStatus: {},
   };
 }
 
-async function getGmgnPublicMarket(chain: string, address: string): Promise<TokenMarketCandidate | null> {
+async function getGmgnMarket(chain: string, address: string): Promise<TokenMarketCandidate | null> {
   if (!canRequest(gmgnBackoff, Date.now())) return null;
   try {
-    const response = await fetch(`https://gmgn.ai/defi/quotation/v1/tokens/${chain}/${encodeURIComponent(address)}`, {
-      headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(7000),
-    });
-    if (!response.ok) { gmgnBackoff = nextBackoff(gmgnBackoff, Date.now(), response.status === 429, Math.floor(Math.random() * 1000)); return null; }
+    const payload = await getGmgnTokenInfo(chain, address);
     gmgnBackoff = undefined;
-    return parseGmgnToken(await response.json(), chain, address);
-  } catch { gmgnBackoff = nextBackoff(gmgnBackoff, Date.now(), false, Math.floor(Math.random() * 1000)); return null; }
+    return parseGmgnToken({ data: payload }, chain, address);
+  } catch (error) { gmgnBackoff = nextBackoff(gmgnBackoff, Date.now(), /429|rate/i.test(error instanceof Error ? error.message : ""), Math.floor(Math.random() * 1000)); return null; }
 }
 
 async function getAveMarket(chain: string, address: string): Promise<TokenMarketCandidate | null> {
@@ -124,45 +133,33 @@ async function getAveMarket(chain: string, address: string): Promise<TokenMarket
 }
 
 export async function getMarketData(chain: string, address: string, options: { useAve?: boolean } = {}): Promise<MarketData> {
-  const useAve = options.useAve !== false;
-  const [dex, gmgn, ave] = await Promise.all([
+  // Ave is opt-in shadow sampling only. Public pages and polling must never
+  // consume its quota or rely on it for production fields.
+  const useAve = options.useAve === true;
+  const [dex, gmgn, okx, ave] = await Promise.all([
     getDexMarket(chain, address).catch(() => emptyMarket),
-    getGmgnPublicMarket(chain, address),
+    getGmgnMarket(chain, address),
+    getOkxClient()?.priceInfo([{ chain, address }]).then((result) => result.value.get(`${chain}:${chain === "sol" ? address : address.toLowerCase()}`) ?? null).catch(() => null) ?? Promise.resolve(null),
     useAve ? getAveMarket(chain, address) : Promise.resolve<TokenMarketCandidate | null>(null),
   ]);
-  const dexCandidate: TokenMarketCandidate = { source: "dex", chain, address, pairAddress: dex.pairAddress, name: dex.name, symbol: dex.symbol, logo: dex.logo, description: dex.description, descriptionSource: null, price: dex.price || null, priceChange24h: dex.priceChange24h, marketCap: null, fdv: dex.marketCap || null, circulatingSupply: null, totalSupply: null, decimals: null, liquidity: dex.liquidity || null, volume24h: dex.volume24h || null, holderCount: null, createdAt: dex.createdAt || null, updatedAt: new Date().toISOString(), identityVerified: dex.identityVerified };
-  const resolved = resolveTokenMarket([ave, gmgn, dexCandidate]);
+  const dexCandidate: TokenMarketCandidate = { source: "dex", chain, address, pairAddress: dex.pairAddress, name: dex.name, symbol: dex.symbol, logo: dex.logo, description: dex.description, descriptionSource: null, price: dex.price || null, priceChange24h: dex.priceChange24h, marketCap: null, fdv: dex.fdv, circulatingSupply: null, totalSupply: null, decimals: null, liquidity: dex.liquidity || null, volume24h: dex.volume24h || null, holderCount: null, createdAt: dex.createdAt || null, updatedAt: new Date().toISOString(), identityVerified: dex.identityVerified };
+  // Ave is sampled for health during the transition, but does not participate
+  // in production field selection. This keeps it a true shadow source.
+  const resolved = resolveTokenMarket([okx, gmgn, dexCandidate]);
   return {
-    // Token identity follows the contract's primary market metadata. Ave is a
-    // fallback here because its token index can occasionally attach an alias
-    // from a different project to the same contract (as seen with BONK).
-    name: resolved.name, symbol: resolved.symbol, logo: resolved.logo, description: resolved.description, descriptionSource: resolved.descriptionSource, descriptionUpdatedAt: resolved.descriptionUpdatedAt, price: resolved.price ?? 0, priceChange24h: resolved.priceChange24h, change24hSource: resolved.change24hSource, change24hUpdatedAt: resolved.change24hUpdatedAt,
-    marketCap: resolved.marketCap ?? 0, filterMarketCap: resolved.filterMarketCap, marketCapKind: resolved.marketCapKind, marketCapSource: resolved.marketCapSource,
+    // Token identity and fields come only from the verified production
+    // providers above. The optional Ave result is health-only shadow evidence.
+    name: resolved.name, symbol: resolved.symbol, logo: resolved.logo, description: resolved.description, descriptionSource: resolved.descriptionSource, descriptionUpdatedAt: resolved.descriptionUpdatedAt, website: resolved.website, socials: resolved.socials, price: resolved.price ?? 0, priceChange24h: resolved.priceChange24h, change24hSource: resolved.change24hSource, change24hUpdatedAt: resolved.change24hUpdatedAt,
+    marketCap: resolved.marketCap ?? 0, fdv: resolved.fdv, filterMarketCap: resolved.filterMarketCap, marketCapKind: resolved.marketCapKind, marketCapSource: resolved.marketCapSource,
     marketDataConflict: resolved.marketDataConflict, marketCapCandidates: resolved.marketCapCandidates, selectionReason: resolved.selectionReason,
     liquidity: resolved.liquidity ?? 0, holders: resolved.holderCount, holderSource: resolved.holderSource, holderUpdatedAt: resolved.holderUpdatedAt,
     volume24h: resolved.volume24h ?? 0, pairAddress: string(dex.pairAddress || resolved.pairAddress), dexUrl: string(dex.dexUrl), createdAt: resolved.createdAt ?? 0,
     identityVerified: resolved.identityVerified,
-    sourceStatus: { ...(useAve ? { ave: ave?.identityVerified ? "healthy" as const : "unavailable" as const } : {}), gmgn: gmgn?.identityVerified ? "healthy" : gmgnBackoff ? "rate_limited" : "unavailable", dex: dex.identityVerified ? "healthy" : "unavailable" },
+    sourceStatus: { okx: okx?.identityVerified ? "healthy" : getOkxClient() ? "unavailable" : "unavailable", ...(useAve ? { ave: ave?.identityVerified ? "healthy" as const : "unavailable" as const } : {}), gmgn: gmgn?.identityVerified ? "healthy" : gmgnBackoff ? "rate_limited" : "unavailable", dex: dex.identityVerified ? "healthy" : "unavailable" },
   };
 }
 
 type KlineAttempt = { candles: Candle[]; failureKind?: KlineFailureKind };
-
-async function getAveKline(chain: string, address: string, interval: KlineInterval, limit: number): Promise<KlineAttempt> {
-  const apiKey = runtimeEnv("AVE_API_KEY");
-  const chainId = aveChain[chain];
-  if (!chainId) return { candles: [], failureKind: "unsupported" };
-  if (!apiKey) return { candles: [], failureKind: "upstream" };
-  const tokenId = `${address}-${chainId}`;
-  const response = await fetchWithRetry(`https://prod.ave-api.com/v2/klines/token/${encodeURIComponent(tokenId)}?interval=${interval}&limit=${limit}`, {
-    headers: { Accept: "application/json", "X-API-KEY": apiKey, "User-Agent": "KOL-Signal-Monitor/1.0" }, signal: AbortSignal.timeout(8000),
-  });
-  if (!response.ok) return { candles: [], failureKind: response.status === 404 ? "unindexed" : "upstream" };
-  const root = record(await response.json());
-  const points = record(root.data).points;
-  if (!Array.isArray(points)) return { candles: [], failureKind: "unindexed" };
-  return { candles: points.map(record).map((row) => ({ time: number(row.time), open: number(row.open), high: number(row.high), low: number(row.low), close: number(row.close), volume: number(row.volume) })).filter((row) => row.time && row.high && row.low).sort((a, b) => a.time - b.time), failureKind: points.length ? undefined : "unindexed" };
-}
 
 async function getGeckoKline(chain: string, address: string, interval: KlineInterval, limit: number): Promise<KlineAttempt> {
   const network = geckoChain[chain];
@@ -197,12 +194,18 @@ async function getGeckoKline(chain: string, address: string, interval: KlineInte
 export async function getKlineData(chain: string, address: string, interval: KlineInterval = 15, requestedLimit?: number): Promise<KlineResult> {
   const limit = Math.max(2, Math.min(requestedLimit ?? KLINE_META[interval].limit, KLINE_META[interval].limit));
   const classify = (error: unknown): KlineAttempt => ({ candles: [], failureKind: error instanceof DOMException && error.name === "TimeoutError" ? "timeout" : /timeout/i.test(error instanceof Error ? error.message : "") ? "timeout" : "upstream" });
-  const [ave, gecko] = await Promise.all([getAveKline(chain, address, interval, limit).catch(classify), getGeckoKline(chain, address, interval, limit).catch(classify)]);
-  if (ave.candles.length) return { candles: ave.candles, source: `Ave.ai · ${KLINE_META[interval].label}`, reason: "" };
-  if (gecko.candles.length) return { candles: gecko.candles, source: `GeckoTerminal · ${KLINE_META[interval].label}`, reason: "" };
-  const failureKind: KlineFailureKind = [ave.failureKind, gecko.failureKind].includes("timeout") ? "timeout" : [ave.failureKind, gecko.failureKind].includes("upstream") ? "upstream" : [ave.failureKind, gecko.failureKind].every((kind) => kind === "unsupported") ? "unsupported" : "unindexed";
+  const okxOutcome = await (getOkxClient() && chain in OKX_CHAIN_INDEX
+    ? getOkxClient()!.candles(chain as SupportedMarketChain, address, interval, limit).then((result) => ({ result, error: null })).catch((error: unknown) => ({ result: null, error }))
+    : Promise.resolve({ result: null, error: new OkxRequestError("configuration", "OKX market is not configured") }));
+  const okxResult = okxOutcome.result;
+  const okxFailureMeta: OkxRequestMeta | undefined = okxOutcome.error ? { requestCount: 1, latencyMs: 0, cacheHit: false, rateLimited: okxOutcome.error instanceof OkxRequestError && okxOutcome.error.kind === "rate_limited", status: okxOutcome.error instanceof OkxRequestError && okxOutcome.error.kind === "rate_limited" ? "rate_limited" : "unavailable" } : undefined;
+  const okx: KlineAttempt = okxResult ? { candles: okxResult.value } : { candles: [], failureKind: okxOutcome.error instanceof OkxRequestError && okxOutcome.error.kind === "timeout" ? "timeout" : okxOutcome.error instanceof OkxRequestError && okxOutcome.error.kind === "configuration" ? "unsupported" : "upstream" };
+  if (okx.candles.length) return { candles: okx.candles, source: `OKX Onchain · ${KLINE_META[interval].label}`, reason: "", providerMeta: okxResult?.meta };
+  const gecko = await getGeckoKline(chain, address, interval, limit).catch(classify);
+  if (gecko.candles.length) return { candles: gecko.candles, source: `GeckoTerminal · ${KLINE_META[interval].label}`, reason: "", providerMeta: okxFailureMeta };
+  const failureKind: KlineFailureKind = [okx.failureKind, gecko.failureKind].includes("timeout") ? "timeout" : [okx.failureKind, gecko.failureKind].includes("upstream") ? "upstream" : [okx.failureKind, gecko.failureKind].every((kind) => kind === "unsupported") ? "unsupported" : "unindexed";
   return {
     candles: [], source: "",
-    reason: klineUnavailableReason(chain, interval, failureKind), failureKind,
+    reason: klineUnavailableReason(chain, interval, failureKind), failureKind, providerMeta: okxFailureMeta,
   };
 }

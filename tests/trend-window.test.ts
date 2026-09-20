@@ -42,4 +42,14 @@ describe("24 hour KOL trend window", () => {
     expect(result.series.amount.filter((point) => point.value !== null).map((point) => point.time)).toEqual([Date.parse("2026-09-20T10:03:00.000Z"), Date.parse("2026-09-20T10:09:00.000Z")]);
     expect(result.series.value.filter((point) => point.value !== null).map((point) => point.time)).toEqual([Date.parse("2026-09-20T10:06:00.000Z"), Date.parse("2026-09-20T10:09:00.000Z")]);
   });
+
+  it("reports source coverage and real missing reasons without inventing points", () => {
+    const result = buildTrendWindow([
+      { capturedAt: "2026-09-20T10:00:00.000Z", holders: 2, amount: 20, value: 200, coverage: 1 },
+      { capturedAt: "2026-09-20T10:03:00.000Z", holders: 2, amount: 20, value: 210, coverage: 0.5, missingReason: "smartmoney source unavailable" },
+    ], now);
+    expect(result.sampleCoverage).toBe(0.75);
+    expect(result.missingReasons).toEqual(["smartmoney source unavailable"]);
+    expect(result.points).toHaveLength(2);
+  });
 });

@@ -1,5 +1,7 @@
 import { getKlineData } from "@/lib/market";
 import { isKlineInterval, normalizeKlineLimit } from "@/lib/kline";
+import { env } from "cloudflare:workers";
+import { recordKlineSample } from "@/lib/provider-samples";
 
 export const dynamic = "force-dynamic";
 
@@ -15,5 +17,6 @@ export async function GET(request: Request) {
     return Response.json({ error: "K线参数无效" }, { status: 400 });
   }
   const result = await getKlineData(chain, address, interval, requestedLimit);
+  await recordKlineSample(env.DB, chain, address, interval, result).catch(() => undefined);
   return Response.json(result, { headers: { "Cache-Control": requestedLimit && requestedLimit <= 5 ? "public, max-age=2, stale-while-revalidate=5" : "public, max-age=30, stale-while-revalidate=120" } });
 }

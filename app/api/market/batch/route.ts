@@ -2,6 +2,8 @@ import { getBatchMarketData, type BatchMarketItem } from "@/lib/batch-market";
 import { getMarketData } from "@/lib/market";
 import { env } from "cloudflare:workers";
 import { mergeSnapshot, persistedMarketSnapshot } from "@/lib/market-live";
+import { okxCredentialsFromEnv } from "@/lib/providers/okx";
+import { recordMarketSamples } from "@/lib/provider-samples";
 
 export const dynamic = "force-dynamic";
 
@@ -34,8 +36,8 @@ export async function POST(request: Request) {
     const address = typeof item.address === "string" ? item.address.trim() : "";
     return allowedChains.has(chain) && address.length >= 10 && address.length <= 128 ? [{ chain, address }] : [];
   });
-  const apiKey = (env as unknown as Record<string, unknown>).AVE_API_KEY;
-  const [primary, persisted] = await Promise.all([getBatchMarketData(tokens, typeof apiKey === "string" ? apiKey : ""), persistedSnapshots(tokens)]);
+  const runtime = env as unknown as Record<string, unknown>;
+  const [primary, persisted] = await Promise.all([getBatchMarketData(tokens, okxCredentialsFromEnv(runtime)), persistedSnapshots(tokens)]);
   const items = await Promise.all(primary.map(async (item) => {
     const key = keyFor(item.chain, item.address);
     const base = persisted.has(key) ? mergeSnapshot(persisted.get(key), item) : item;
@@ -46,9 +48,10 @@ export async function POST(request: Request) {
       return cached ? { ...cached, source: cached.source.startsWith("cached:") ? cached.source : `cached:${cached.source}` } : base;
     }
     const now = new Date().toISOString();
-    const available = { ...base, tokenAddress: base.address, pairAddress: fallback.pairAddress || base.pairAddress, symbol: fallback.symbol || base.symbol, price: fallback.price || base.price, priceChange24h: fallback.priceChange24h ?? base.priceChange24h, change24hSource: fallback.change24hSource ?? base.change24hSource, change24hUpdatedAt: fallback.change24hUpdatedAt ?? base.change24hUpdatedAt, marketCap: fallback.marketCap || base.marketCap, marketCapKind: fallback.marketCapKind ?? base.marketCapKind, marketCapSource: fallback.marketCapSource ?? base.marketCapSource, marketDataConflict: fallback.marketDataConflict, marketCapCandidates: fallback.marketCapCandidates, liquidity: fallback.liquidity || base.liquidity, holders: fallback.holders ?? base.holders, holderSource: fallback.holderSource ?? base.holderSource, holderUpdatedAt: fallback.holderUpdatedAt ?? base.holderUpdatedAt, volume24h: fallback.volume24h || base.volume24h, sourceTimestamp: now, receivedAt: now, updatedAt: now, identityVerified: fallback.identityVerified, source: base.source === "unavailable" ? "Ave/GMGN fallback" : `${base.source}+token-detail`, fieldSources: { ...base.fieldSources, ...(fallback.price > 0 ? { price: fallback.marketCapSource || "token-detail" } : {}), ...(fallback.priceChange24h !== null ? { priceChange24h: fallback.change24hSource || "token-detail" } : {}), ...(fallback.marketCap > 0 ? { marketCap: fallback.marketCapSource || "token-detail" } : {}), ...(fallback.liquidity > 0 ? { liquidity: "token-detail" } : {}), ...(fallback.volume24h > 0 ? { volume24h: "token-detail" } : {}), ...(fallback.holders !== null ? { holders: fallback.holderSource || "token-detail" } : {}) }, fieldUpdatedAt: { ...base.fieldUpdatedAt, ...(fallback.price > 0 ? { price: now } : {}), ...(fallback.priceChange24h !== null ? { priceChange24h: fallback.change24hUpdatedAt || now } : {}), ...(fallback.marketCap > 0 ? { marketCap: now } : {}), ...(fallback.liquidity > 0 ? { liquidity: now } : {}), ...(fallback.volume24h > 0 ? { volume24h: now } : {}), ...(fallback.holders !== null ? { holders: fallback.holderUpdatedAt || now } : {}) }, staleFields: base.staleFields, conflictFields: fallback.marketDataConflict ? ["marketCap" as const] : base.conflictFields };
+    const available = { ...base, tokenAddress: base.address, pairAddress: fallback.pairAddress || base.pairAddress, symbol: fallback.symbol || base.symbol, price: fallback.price || base.price, priceChange24h: fallback.priceChange24h ?? base.priceChange24h, change24hSource: fallback.change24hSource ?? base.change24hSource, change24hUpdatedAt: fallback.change24hUpdatedAt ?? base.change24hUpdatedAt, marketCap: fallback.marketCap || base.marketCap, marketCapKind: fallback.marketCapKind ?? base.marketCapKind, marketCapSource: fallback.marketCapSource ?? base.marketCapSource, marketDataConflict: fallback.marketDataConflict, marketCapCandidates: fallback.marketCapCandidates, liquidity: fallback.liquidity || base.liquidity, holders: fallback.holders ?? base.holders, holderSource: fallback.holderSource ?? base.holderSource, holderUpdatedAt: fallback.holderUpdatedAt ?? base.holderUpdatedAt, volume24h: fallback.volume24h || base.volume24h, sourceTimestamp: now, receivedAt: now, updatedAt: now, identityVerified: fallback.identityVerified, source: base.source === "unavailable" ? "OKX/GMGN/Dex fallback" : `${base.source}+token-detail`, fieldSources: { ...base.fieldSources, ...(fallback.price > 0 ? { price: fallback.marketCapSource || "token-detail" } : {}), ...(fallback.priceChange24h !== null ? { priceChange24h: fallback.change24hSource || "token-detail" } : {}), ...(fallback.marketCap > 0 ? { marketCap: fallback.marketCapSource || "token-detail" } : {}), ...(fallback.liquidity > 0 ? { liquidity: "token-detail" } : {}), ...(fallback.volume24h > 0 ? { volume24h: "token-detail" } : {}), ...(fallback.holders !== null ? { holders: fallback.holderSource || "token-detail" } : {}) }, fieldUpdatedAt: { ...base.fieldUpdatedAt, ...(fallback.price > 0 ? { price: now } : {}), ...(fallback.priceChange24h !== null ? { priceChange24h: fallback.change24hUpdatedAt || now } : {}), ...(fallback.marketCap > 0 ? { marketCap: now } : {}), ...(fallback.liquidity > 0 ? { liquidity: now } : {}), ...(fallback.volume24h > 0 ? { volume24h: now } : {}), ...(fallback.holders !== null ? { holders: fallback.holderUpdatedAt || now } : {}) }, staleFields: base.staleFields, conflictFields: fallback.marketDataConflict ? ["marketCap" as const] : base.conflictFields };
     lastAvailable.set(key, available);
     return available;
   }));
+  await recordMarketSamples(env.DB, items).catch(() => undefined);
   return Response.json({ items, serverTime: new Date().toISOString() }, { headers: { "Cache-Control": "public, max-age=2, stale-while-revalidate=10" } });
 }

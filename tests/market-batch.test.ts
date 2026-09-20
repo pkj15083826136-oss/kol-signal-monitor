@@ -17,13 +17,13 @@ describe("batch market source", () => {
     expect(result[0].marketCap).toBe(0);
     expect(result[1]).toMatchObject({ price: 4, liquidity: 25 });
   });
-  it("uses one Ave batch response for token pricing without treating pair FDV as market cap", async () => {
-    const fetchMock = vi.fn(async (url: string | URL | Request) => String(url).includes("ave-api")
-      ? new Response(JSON.stringify({ data: { "0xaaaaaaaaaa-base": { current_price_usd: "3", tvl: "90", tx_volume_u_24h: "45" } } }), { status: 200 })
+  it("uses one OKX batch response for token-level metrics without treating pair FDV as market cap", async () => {
+    const fetchMock = vi.fn(async (url: string | URL | Request) => String(url).includes("web3.okx.com")
+      ? new Response(JSON.stringify({ code: "0", data: [{ chainIndex: "8453", tokenContractAddress: "0xaaaaaaaaaa", time: "1789950000000", price: "3", priceChange24H: "2.5", marketCap: "120", liquidity: "90", volume24H: "45", holders: "9" }] }), { status: 200 })
       : new Response(JSON.stringify([{ baseToken: { address: "0xaaaaaaaaaa" }, priceUsd: "2", fdv: 999, liquidity: { usd: 50 }, volume: { h24: 30 } }]), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
-    const [result] = await getBatchMarketData([{ chain: "base", address: "0xaaaaaaaaaa" }], "test-key");
+    const [result] = await getBatchMarketData([{ chain: "base", address: "0xaaaaaaaaaa" }], { apiKey: "key", secretKey: "secret", passphrase: "pass", projectId: "project" });
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(result).toMatchObject({ price: 3, marketCap: 0, liquidity: 90, volume24h: 45, source: "Ave.ai" });
+    expect(result).toMatchObject({ price: 3, priceChange24h: 2.5, marketCap: 120, marketCapKind: "market_cap", liquidity: 90, volume24h: 45, holders: 9, source: "OKX Onchain" });
   });
 });

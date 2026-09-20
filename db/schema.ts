@@ -45,6 +45,8 @@ export const signals = sqliteTable("signals", {
   officialDescription: text("official_description").notNull().default(""),
   descriptionSource: text("description_source"),
   descriptionUpdatedAt: text("description_updated_at"),
+  website: text("website"),
+  socialsJson: text("socials_json").notNull().default("{}"),
   aiAnalysis: text("ai_analysis").notNull().default("等待有效社媒讨论"),
   walletNamesJson: text("wallet_names_json").notNull().default("[]"),
   alertedAt: text("alerted_at").notNull(),
@@ -80,6 +82,9 @@ export const snapshots = sqliteTable("snapshots", {
   totalBuyUsd: integer("total_buy_usd").notNull(),
   totalTokenAmount: real("total_token_amount").notNull().default(0),
   marketValue: real("market_value").notNull(),
+  positionDelta: real("position_delta").notNull().default(0),
+  coverageRatio: real("coverage_ratio"),
+  missingReason: text("missing_reason"),
   capturedAt: text("captured_at").notNull(),
 }, (table) => [index("idx_snapshots_token_time").on(table.chain, table.tokenAddress, table.capturedAt)]);
 
@@ -112,6 +117,29 @@ export const sourceHealth = sqliteTable("source_health", {
   nextRetryAt: text("next_retry_at"),
   impact: text("impact").notNull().default("none"),
 }, (table) => [primaryKey({ columns: [table.source, table.chain] })]);
+
+export const providerSamples = sqliteTable("provider_samples", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  source: text("source").notNull(),
+  chain: text("chain").notNull(),
+  tokenAddress: text("token_address").notNull(),
+  dataKind: text("data_kind").notNull(),
+  interval: integer("interval").notNull().default(0),
+  bucket: text("bucket").notNull(),
+  requestCount: integer("request_count").notNull().default(0),
+  success: integer("success").notNull().default(0),
+  status: text("status").notNull(),
+  latencyMs: integer("latency_ms").notNull().default(0),
+  cacheHit: integer("cache_hit").notNull().default(0),
+  rateLimited: integer("rate_limited").notNull().default(0),
+  identityVerified: integer("identity_verified").notNull().default(0),
+  availableFieldsJson: text("available_fields_json").notNull().default("[]"),
+  sourceTimestamp: text("source_timestamp"),
+  capturedAt: text("captured_at").notNull(),
+}, (table) => [
+  uniqueIndex("uidx_provider_samples_bucket").on(table.source, table.chain, table.tokenAddress, table.dataKind, table.interval, table.bucket),
+  index("idx_provider_samples_time").on(table.source, table.capturedAt),
+]);
 
 export const marketReviews = sqliteTable("market_reviews", {
   chain: text("chain").notNull(), tokenAddress: text("token_address").notNull(), status: text("status").notNull(), reason: text("reason").notNull(),

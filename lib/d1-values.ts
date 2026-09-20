@@ -42,7 +42,9 @@ export const SIGNAL_MARKET_UPDATE_SQL = `UPDATE signals SET
   price = CASE WHEN ? > 0 THEN ? ELSE price END,
   official_description = CASE WHEN ? != '' THEN ? ELSE official_description END,
   description_source = CASE WHEN ? != '' THEN ? ELSE description_source END,
-  description_updated_at = CASE WHEN ? != '' THEN ? ELSE description_updated_at END
+  description_updated_at = CASE WHEN ? != '' THEN ? ELSE description_updated_at END,
+  website = CASE WHEN ? != '' THEN ? ELSE website END,
+  socials_json = CASE WHEN ? != '{}' THEN ? ELSE socials_json END
   WHERE chain = ? AND token_address = ?`;
 
 export function signalMarketUpdateBindings(market: Record<string, unknown>, chain: unknown, token: unknown): D1Value[] {
@@ -57,6 +59,8 @@ export function signalMarketUpdateBindings(market: Record<string, unknown>, chai
   const description = d1Text(market.description).slice(0, 1200);
   const descriptionSource = d1Text(market.descriptionSource);
   const descriptionUpdatedAt = d1Text(market.descriptionUpdatedAt);
+  const website = d1Text(market.website);
+  const socialsJson = d1Json(market.socials, {});
   return d1Bindings("signals.market_update", {
     name_check: name, name,
     symbol_check: symbol, symbol,
@@ -69,6 +73,8 @@ export function signalMarketUpdateBindings(market: Record<string, unknown>, chai
     official_description_check: description, official_description: description,
     description_source_check: descriptionSource, description_source: descriptionSource,
     description_updated_at_check: descriptionUpdatedAt, description_updated_at: descriptionUpdatedAt,
+    website_check: website, website,
+    socials_json_check: socialsJson, socials_json: socialsJson,
     chain: d1Text(chain), token_address: d1Text(token),
   });
 }

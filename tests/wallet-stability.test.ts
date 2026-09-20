@@ -8,6 +8,7 @@ import {
   walletErrorMessage,
   walletMatchesTokenChain,
   formatWalletBalance,
+  walletOperationComplete,
   withWalletTimeout,
 } from "@/lib/wallet/state";
 
@@ -60,6 +61,12 @@ describe("wallet connection stability and multichain safety", () => {
     expect(chainFromNetwork(null, "eip155:4663")).toBe("robinhood");
     expect(walletMatchesTokenChain("bsc", "sol")).toBe(false);
     expect(walletMatchesTokenChain("base", "base")).toBe(true);
+  });
+
+  it("does not finish an EVM-to-EVM switch merely because an account is already connected", () => {
+    expect(walletOperationComplete({ kind: "switch", target: "base" }, true, "bsc")).toBe(false);
+    expect(walletOperationComplete({ kind: "switch", target: "base" }, true, "base")).toBe(true);
+    expect(walletOperationComplete({ kind: "connect", target: null }, true, "bsc")).toBe(true);
   });
 
   it("times out a wallet request instead of spinning forever", async () => {

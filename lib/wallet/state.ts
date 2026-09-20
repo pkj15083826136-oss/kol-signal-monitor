@@ -45,6 +45,11 @@ export function walletErrorMessage(error: unknown, fallback = "钱包操作失�
 
 export function walletMatchesTokenChain(walletChain: WalletChain | null, tokenChain: string) { return walletChain === tokenChain; }
 
+export function walletOperationComplete(operation: { kind: "connect" | "switch"; target: WalletChain | null } | null, connected: boolean, chain: WalletChain | null) {
+  if (!operation || !connected) return false;
+  return operation.kind === "connect" ? true : operation.target === chain;
+}
+
 export function formatWalletBalance(value: unknown, symbol: unknown, fallbackSymbol: string) {
   const amount = typeof value === "string" || typeof value === "number" ? String(value).trim() : "";
   const unit = typeof symbol === "string" && symbol.trim() ? symbol.trim() : fallbackSymbol;

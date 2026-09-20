@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAppKit, useAppKitAccount, useAppKitBalance, useAppKitNetwork, useAppKitState, useDisconnect, useWalletInfo } from "@reown/appkit/react";
 import { WalletContext, type WalletAccount, type WalletContextValue } from "@/components/wallet/wallet-root";
 import { walletNetworkByChain } from "@/lib/wallet/networks";
-import { chainFromNetwork, formatWalletBalance, validWalletAddress, WALLET_CHAIN_META, WalletOperationGate, walletConnectionPhase, walletErrorMessage, withWalletTimeout, type WalletChain, type WalletNamespace } from "@/lib/wallet/state";
+import { chainFromNetwork, formatWalletBalance, validWalletAddress, WALLET_CHAIN_META, WalletOperationGate, walletConnectionPhase, walletErrorMessage, walletOperationComplete, withWalletTimeout, type WalletChain, type WalletNamespace } from "@/lib/wallet/state";
 
 function namespaceFor(chain: WalletChain): WalletNamespace { return WALLET_CHAIN_META[chain].namespace; }
 
@@ -53,7 +53,7 @@ export default function WalletBridge({ children }: { children: React.ReactNode }
   }), [evm.address, evm.isConnected, solana.address, solana.isConnected]);
 
   useEffect(() => {
-    if (!connected) return;
+    if (!walletOperationComplete(operation, connected, chain)) return;
     let active = true;
     queueMicrotask(() => {
       if (!active) return;
@@ -61,7 +61,7 @@ export default function WalletBridge({ children }: { children: React.ReactNode }
       void closeRef.current().catch(() => {});
     });
     return () => { active = false; };
-  }, [connected]);
+  }, [operation, connected, chain]);
 
   useEffect(() => {
     if (!operation || connected) return;

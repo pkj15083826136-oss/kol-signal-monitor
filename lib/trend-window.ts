@@ -1,4 +1,4 @@
-export type TrendSample = { capturedAt: string; holders: number; amount: number; value: number };
+export type TrendSample = { capturedAt: string; holders: number; amount: number; value: number; coverage?: number | null; missingReason?: string | null; delta?: number | null };
 export type TrendPoint = Omit<TrendSample, "capturedAt"> & { time: number };
 export type TrendChartPoint = { time: number; holders: number | null; amount: number | null; value: number | null };
 export type TrendSeriesPoint = { time: number; value: number | null };
@@ -42,6 +42,9 @@ export function buildTrendWindow(samples: TrendSample[], now = Date.now()) {
   const first = Math.max(cutoff, points[0]?.time ?? now);
   const last = points.at(-1)?.time ?? first;
   const coverageMinutes = Math.max(0, Math.floor((last - first) / 60_000));
+  const coverageValues = samples.map((sample) => sample.coverage).filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  const sampleCoverage = coverageValues.length ? coverageValues.reduce((sum, value) => sum + value, 0) / coverageValues.length : null;
+  const missingReasons = [...new Set(samples.map((sample) => sample.missingReason).filter((value): value is string => Boolean(value)))];
   const series = { holders: metricSeries("holders"), amount: metricSeries("amount"), value: metricSeries("value") };
   const chartPoints: TrendChartPoint[] = points.map((point) => ({ time: point.time, holders: Number.isFinite(point.holders) ? point.holders : null, amount: Number.isFinite(point.amount) ? point.amount : null, value: Number.isFinite(point.value) ? point.value : null }));
   return {
@@ -52,6 +55,8 @@ export function buildTrendWindow(samples: TrendSample[], now = Date.now()) {
     domain: [first, last] as [number, number],
     coverageLabel: `${Math.floor(coverageMinutes / 60)}小时${coverageMinutes % 60}分钟`,
     samplingLabel: `${Math.floor(samplingMs / 60_000)}分${Math.round((samplingMs % 60_000) / 1000)}秒`,
+    sampleCoverage,
+    missingReasons,
     gapThresholdMs,
   };
 }

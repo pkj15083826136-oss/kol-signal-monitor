@@ -334,9 +334,16 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
         }
       }
       const price = liveMarket?.price || Number(previousSignal?.price || 0);
-      await write(db, "INSERT INTO snapshots (chain, token_address, holder_count, total_buy_usd, total_token_amount, market_value, captured_at) VALUES (?, ?, ?, ?, ?, ?, ?)", "snapshots.insert", {
+      const previousSnapshot = await db.prepare("SELECT total_token_amount FROM snapshots WHERE chain = ? AND token_address = ? ORDER BY captured_at DESC LIMIT 1")
+        .bind(chain, token).first<{ total_token_amount: number }>();
+      const totalTokenAmount = Number(aggregate?.total_token_amount || 0);
+      const feedCoverage = Math.max(0, Math.min(1, (2 - feedErrors.length) / 2));
+      await write(db, "INSERT INTO snapshots (chain, token_address, holder_count, total_buy_usd, total_token_amount, market_value, position_delta, coverage_ratio, missing_reason, captured_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", "snapshots.insert", {
         chain: d1Text(chain), token_address: d1Text(token), holder_count: d1Integer(holderCount), total_buy_usd: d1Integer(aggregate?.total_buy_usd),
-        total_token_amount: d1Number(aggregate?.total_token_amount), market_value: d1Number(Number(aggregate?.total_token_amount || 0) * price), captured_at: new Date().toISOString(),
+        total_token_amount: d1Number(totalTokenAmount), market_value: d1Number(totalTokenAmount * price),
+        position_delta: d1Number(previousSnapshot ? totalTokenAmount - Number(previousSnapshot.total_token_amount || 0) : 0),
+        coverage_ratio: d1Number(feedCoverage), missing_reason: feedErrors.length ? d1Text(feedErrors.join("; ")).slice(0, 500) : null,
+        captured_at: new Date().toISOString(),
       }).run();
       if (previousSignal && liveMarket) {
         await db.prepare(SIGNAL_MARKET_UPDATE_SQL).bind(...signalMarketUpdateBindings(liveMarket, chain, token)).run();
@@ -376,13 +383,14 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
         gmgnTheme, aiAnalysis: narrative.aiAnalysis, walletNames, detailUrl: "",
       };
       const inserted = await write(db, `INSERT INTO signals
-        (chain, token_address, name, symbol, logo, threshold, holder_count, market_cap, liquidity, holders, volume_24h, price, gmgn_theme, official_description, description_source, description_updated_at, ai_analysis, wallet_names_json, alerted_at, alert_status, alert_attempts, alert_payload_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?)`, "signals.insert", {
+        (chain, token_address, name, symbol, logo, threshold, holder_count, market_cap, liquidity, holders, volume_24h, price, gmgn_theme, official_description, description_source, description_updated_at, website, socials_json, ai_analysis, wallet_names_json, alerted_at, alert_status, alert_attempts, alert_payload_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?)`, "signals.insert", {
         chain: d1Text(chain), token_address: d1Text(token), name: d1Text(name, "Unknown"), symbol: d1Text(symbol, "—"),
         logo: d1Text(liveMarket?.logo || firstString(info, ["logo", "logo_url"]) || firstString(tradeToken, ["logo", "logo_url"])),
         threshold: d1Integer(due), holder_count: d1Integer(holderCount), market_cap: d1Integer(marketCap), liquidity: d1Integer(liquidity),
         holders: d1Integer(holders), volume_24h: d1Integer(volume24h), price: d1Text(currentPrice, "0"), gmgn_theme: d1Text(gmgnTheme.slice(0, 500)),
         official_description: d1Text(officialDescription).slice(0, 1200), description_source: d1Text(liveMarket?.descriptionSource), description_updated_at: d1Text(liveMarket?.descriptionUpdatedAt),
+        website: d1Text(liveMarket?.website), socials_json: d1Json(liveMarket?.socials, {}),
         ai_analysis: d1Text(narrative.aiAnalysis), wallet_names_json: d1Json(walletNames, []), alerted_at: new Date().toISOString(), alert_payload_json: d1Json(alertPayload),
       }).run();
       const signalId = Number(inserted.meta.last_row_id);

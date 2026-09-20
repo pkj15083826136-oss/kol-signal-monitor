@@ -19,6 +19,14 @@ describe("token-level market normalization", () => {
     expect(resolved.liquidity).toBe(3_380_000);
   });
 
+  it("keeps FDV separate instead of exposing it as market cap", () => {
+    const gmgn = parseGmgnToken({ data: { token: { address, chain: "sol", fdv: "90000000" } } }, "sol", address)!;
+    const resolved = resolveTokenMarket([gmgn]);
+    expect(resolved.marketCap).toBeNull();
+    expect(resolved.fdv).toBe(90_000_000);
+    expect(resolved.marketCapKind).toBeNull();
+  });
+
   it("does not let empty values overwrite valid market cap or holders", () => {
     const ave = parseAveToken(hypeAve, "sol", address)!;
     const gmgn = parseGmgnToken({ data: { token: { address, chain: "sol", market_cap: null, holders: null } } }, "sol", address)!;
@@ -61,9 +69,19 @@ describe("token-level market normalization", () => {
 
   it("reads verified nested metadata without confusing same-symbol tokens", () => {
     const address = "0x1111111111111111111111111111111111111111";
-    const parsed = parseGmgnToken({ data: { token: { address, chain_id: "eip155:56", metadata: { description: "Verified project metadata" }, price_change: { h24: "1.5" } } } }, "bsc", address)!;
-    expect(parsed).toMatchObject({ identityVerified: true, description: "Verified project metadata", priceChange24h: 1.5 });
+    const parsed = parseGmgnToken({ data: { token: { address, chain_id: "eip155:56", metadata: { description: "Verified project metadata", website: "https://example.org" }, socials: { twitter: "https://x.com/example" }, price_change: { h24: "1.5" } } } }, "bsc", address)!;
+    expect(parsed).toMatchObject({ identityVerified: true, description: "Verified project metadata", website: "https://example.org/", socials: { x: "https://x.com/example" }, priceChange24h: 1.5 });
     expect(parseGmgnToken({ data: { token: { address: "0x2222222222222222222222222222222222222222", chain_id: "eip155:56", metadata: { description: "Wrong token" } } } }, "bsc", address)?.identityVerified).toBe(false);
+  });
+  it("rejects unsafe metadata links and exposes unified timestamps and conflicts", () => {
+    const address = "0x1111111111111111111111111111111111111111";
+    const gmgn = parseGmgnToken({ data: { token: { address, chain: "bsc", website: "javascript:alert(1)", telegram: "https://t.me/example", market_cap: "10" } } }, "bsc", address, "2026-09-21T00:00:00.000Z")!;
+    const okx = { ...gmgn, source: "okx" as const, marketCap: 100, website: "", socials: {} };
+    const resolved = resolveTokenMarket([okx, gmgn]);
+    expect(resolved.website).toBe("");
+    expect(resolved.socials).toEqual({ telegram: "https://t.me/example" });
+    expect(resolved.fieldTimestamps.marketCap).toBe("2026-09-21T00:00:00.000Z");
+    expect(resolved.conflicts).toContain("marketCap");
   });
   it("parses signed 24 hour changes", () => {
     expect(parseGmgnToken({ data: { token: { address, chain: "sol", price_change_24h: "-4.25" } } }, "sol", address)?.priceChange24h).toBe(-4.25);

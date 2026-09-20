@@ -75,7 +75,8 @@ test("desktop screenshots, relative signal time, navigation fallback and cached 
 
   const direct = await context.newPage();
   await direct.goto(`/signal/${signal.id}`, { waitUntil: "domcontentloaded" });
-  await expect(direct.locator("[data-wallet-ready='true']")).toBeVisible({ timeout: 20_000 });
+  if (walletEvidence) await expect(direct.locator("[data-wallet-ready='true']")).toBeVisible({ timeout: 20_000 });
+  else await expect(direct.locator("h1").first()).toBeVisible();
   await direct.screenshot({ path: `docs/screenshots/${evidenceLabel}-detail-desktop-1440x1000.png`, fullPage: true });
   let fullKlineRequests = 0;
   let incrementalKlineRequests = 0;
@@ -86,7 +87,7 @@ test("desktop screenshots, relative signal time, navigation fallback and cached 
     await direct.getByRole("button", { name: label, exact: true }).click();
     await expect.poll(() => fullKlineRequests).toBe(expectedFullCount);
     await expect.poll(async () => Number(await direct.locator("[data-kline-full-request-count]").getAttribute("data-kline-full-request-count"))).toBe(expectedFullCount);
-    await expect(direct.getByText(/暂未收录|暂不支持|上游.*暂时不可用|GeckoTerminal|Ave\.ai/).last()).toBeVisible();
+    await expect(direct.getByText(/暂未收录|暂不支持|上游.*暂时不可用|OKX Onchain|GeckoTerminal/).last()).toBeVisible();
   }
   expect(fullKlineRequests).toBe(5);
   await direct.getByRole("button", { name: "1分钟", exact: true }).click();

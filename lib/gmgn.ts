@@ -17,6 +17,7 @@ async function gmgnRequest(path: string, params: Record<string, string | number>
   });
   const response = await fetch(`https://openapi.gmgn.ai${path}?${query}`, {
     headers: { "X-APIKEY": apiKey, "Content-Type": "application/json" },
+    signal: AbortSignal.timeout(8000),
   });
   const payload = (await response.json()) as { code?: number; data?: unknown; message?: string; error?: string };
   if (!response.ok || payload.code !== 0) {
