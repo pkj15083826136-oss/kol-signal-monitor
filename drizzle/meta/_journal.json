@@ -71,6 +71,13 @@
       "when": 1789921883515,
       "tag": "0009_strange_hellion",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1789923677926,
+      "tag": "0010_motionless_champions",
+      "breakpoints": true
     }
   ]
 }

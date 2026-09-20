@@ -228,3 +228,11 @@ GitHub Actions Run #27（`35482576316`，GitHub提交`b4db2cf`）调用生产v46
 
 - GMGN市场metadata当前为`rate_limited`，全局指数退避并带抖动；Ave和Dex继续提供行情。当前20个简介样本无可核验文本，因此简介功能代码完成但真实内容命中率尚不能验收为通过。
 - 生产`market_reviews`当前共11条，其中data_review仅2条（`token_identity_unverified` 1、`market_cap_unknown` 1），其余9条为成熟资产抑制；样本不足20，不能伪造“随机抽查20条”。当前两条均是关键字段无法验证后的预期门禁，不是已知字段解析错误。达到20条后再做人工抽样；门禁原因仍区分market_cap_unknown、creation_time_unknown、identity unverified和conflict。
+
+---
+
+# 2026-09-21 OKX Onchain Stage A
+
+生产实时行情和六周期K线已由OKX Onchain接管，Ave退出公开页面高频行情和K线路径，仅保留监控任务显式触发的低频影子健康采样。四链12个真实合约市场字段全部通过身份校验，72个六周期组合在两次429冷却重试后全部取得真实结果；生产Playwright 6/6通过。
+
+本次为Stage A，不是7天SLA结论。Stage B从北京时间2026-09-21 00:46开始，由“OKX 7天影子采样汇总”每日检查；GMGN metadata 20个样本命中0，真实钱包插件/扫码切链仍需项目所有者批准，均明确保留为未通过/待人工项。完整证据、迁移、风险和回滚见 `docs/OKX_STAGE_A_ACCEPTANCE.md`。

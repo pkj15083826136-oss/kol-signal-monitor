@@ -126,6 +126,7 @@ export const providerSamples = sqliteTable("provider_samples", {
   dataKind: text("data_kind").notNull(),
   interval: integer("interval").notNull().default(0),
   bucket: text("bucket").notNull(),
+  observationCount: integer("observation_count").notNull().default(1),
   requestCount: integer("request_count").notNull().default(0),
   success: integer("success").notNull().default(0),
   status: text("status").notNull(),

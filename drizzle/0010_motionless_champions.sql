@@ -1,0 +1,1 @@
+ALTER TABLE `provider_samples` ADD `observation_count` integer DEFAULT 1 NOT NULL;
