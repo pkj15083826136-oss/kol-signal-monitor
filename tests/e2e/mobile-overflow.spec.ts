@@ -141,6 +141,23 @@ test("production wallet initializes, closes a cancelled connection and never ove
   await page.screenshot({ path: `docs/screenshots/${evidenceLabel}-wallet-mobile-390x844.png`, fullPage: true });
 });
 
+test("radar page is independent, paper-only and responsive", async ({ page }) => {
+  for (const viewport of [{ width: 375, height: 812 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    await gotoWithRetry(page, "/radar");
+    await expect(page.getByText("土狗雷达", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("仅模拟交易", { exact: true })).toBeVisible();
+    for (const tab of ["实时新信号", "AI精选", "观察中", "已买入", "已止盈/已清仓", "被拒绝", "模拟交易记录", "策略设置", "钱包与自动交易状态"]) await expect(page.getByRole("button", { name: tab, exact: true })).toBeVisible();
+    const overflow = await overflowReport(page);
+    expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth);
+    expect(overflow.offenders).toEqual([]);
+    if (viewport.width === 390) await page.screenshot({ path: `docs/screenshots/${evidenceLabel}-radar-mobile-390x844.png`, fullPage: true });
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await gotoWithRetry(page, "/radar");
+  await page.screenshot({ path: `docs/screenshots/${evidenceLabel}-radar-desktop-1440x1000.png`, fullPage: true });
+});
+
 test("production WOJAK loads full history before incremental updates and preserves it for two minutes", async ({ page }) => {
   test.skip(!productionEvidence, "production-only evidence");
   test.setTimeout(180_000);

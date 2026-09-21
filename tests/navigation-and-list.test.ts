@@ -32,4 +32,12 @@ describe("list and detail navigation contracts", () => {
     expect(dashboard).toContain('className="inline-flex min-w-0 items-center gap-1.5"');
     expect(copy).toContain("event.stopPropagation()");
   });
+  it("adds an independent radar route without replacing chain filters", () => {
+    const dashboard = readFileSync(new URL("../app/dashboard.tsx", import.meta.url), "utf8");
+    const radar = readFileSync(new URL("../app/radar/radar-dashboard.tsx", import.meta.url), "utf8");
+    expect(dashboard).toContain('href="/radar"');
+    for (const chain of ["sol", "bsc", "base", "robinhood"]) expect(dashboard).toContain(`value="${chain}"`);
+    expect(radar).toContain("土狗雷达");
+    expect(radar).toContain("仅模拟交易");
+  });
 });

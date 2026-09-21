@@ -5,6 +5,8 @@ export type TradingFeatureFlags = {
   tradeTestnet: boolean;
   tradeMainnet: boolean;
   tradeMainnetChains: Record<"sol" | "bsc" | "base" | "robinhood", boolean>;
+  radarWalletLogin: boolean;
+  radarAutoTrade: boolean;
 };
 
 function enabled(value: string | undefined): boolean {
@@ -24,5 +26,7 @@ export function tradingFeatureFlags(source: Record<string, string | undefined>):
       base: enabled(source.FEATURE_TRADE_MAINNET_BASE),
       robinhood: enabled(source.FEATURE_TRADE_MAINNET_ROBINHOOD),
     },
+    radarWalletLogin: enabled(source.FEATURE_RADAR_WALLET_LOGIN),
+    radarAutoTrade: enabled(source.FEATURE_RADAR_AUTOTRADE),
   };
 }

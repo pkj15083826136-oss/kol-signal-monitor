@@ -57,6 +57,9 @@ export const signals = sqliteTable("signals", {
   alertNextAttemptAt: text("alert_next_attempt_at"),
   alertSentAt: text("alert_sent_at"),
   alertPayloadJson: text("alert_payload_json").notNull().default(""),
+  signalOrigin: text("signal_origin").notNull().default("kol_monitor"),
+  radarSignalId: integer("radar_signal_id"),
+  radarScore: integer("radar_score"),
 }, (table) => [
   uniqueIndex("uidx_signals_token_threshold").on(table.chain, table.tokenAddress, table.threshold),
   index("idx_signals_alerted_at").on(table.alertedAt),
@@ -168,3 +171,260 @@ export const userTrades = sqliteTable("user_trades", {
   uniqueIndex("uidx_user_trades_chain_hash").on(table.chain, table.txHash),
   index("idx_user_trades_wallet_time").on(table.walletAddress, table.createdAt),
 ]);
+
+export const radarSignals = sqliteTable("radar_signals", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  chain: text("chain").notNull(),
+  tokenAddress: text("token_address").notNull(),
+  pairAddress: text("pair_address"),
+  name: text("name").notNull().default("Unknown"),
+  symbol: text("symbol").notNull().default("—"),
+  status: text("status").notNull().default("new"),
+  signalType: text("signal_type").notNull().default("candidate"),
+  ruleVersion: text("rule_version").notNull(),
+  modelVersion: text("model_version"),
+  firstSeenAt: text("first_seen_at").notNull(),
+  poolCreatedAt: text("pool_created_at"),
+  price: text("price").notNull().default("0"),
+  marketCap: real("market_cap"),
+  liquidity: real("liquidity"),
+  volume24h: real("volume_24h"),
+  holders: integer("holders"),
+  buyers: integer("buyers"),
+  sellers: integer("sellers"),
+  smartMoneyCount: integer("smart_money_count").notNull().default(0),
+  securityScore: integer("security_score").notNull().default(0),
+  narrativeScore: integer("narrative_score").notNull().default(0),
+  momentumScore: integer("momentum_score").notNull().default(0),
+  totalScore: integer("total_score").notNull().default(0),
+  aiDecision: text("ai_decision").notNull().default("HOLD"),
+  aiConfidence: real("ai_confidence").notNull().default(0),
+  aiReason: text("ai_reason").notNull().default("证据不足，继续观察"),
+  hardFilterPassed: integer("hard_filter_passed").notNull().default(0),
+  rejectReason: text("reject_reason"),
+  dataFreshnessMs: integer("data_freshness_ms"),
+  sourceStatusJson: text("source_status_json").notNull().default("{}"),
+  rawInputJson: text("raw_input_json").notNull().default("{}"),
+  discoveredAt: text("discovered_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("uidx_radar_signals_chain_token").on(table.chain, table.tokenAddress),
+  index("idx_radar_signals_status_time").on(table.status, table.firstSeenAt),
+  index("idx_radar_signals_score").on(table.totalScore),
+]);
+
+export const radarSignalSources = sqliteTable("radar_signal_sources", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  radarSignalId: integer("radar_signal_id").notNull(),
+  source: text("source").notNull(),
+  sourceEventId: text("source_event_id").notNull(),
+  sourceUrl: text("source_url"),
+  cursor: text("cursor"),
+  observedAt: text("observed_at").notNull(),
+  fetchedAt: text("fetched_at").notNull(),
+  rawSnapshotJson: text("raw_snapshot_json").notNull().default("{}"),
+}, (table) => [
+  uniqueIndex("uidx_radar_sources_event").on(table.source, table.sourceEventId),
+  index("idx_radar_sources_signal_time").on(table.radarSignalId, table.observedAt),
+]);
+
+export const radarSignalSnapshots = sqliteTable("radar_signal_snapshots", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  radarSignalId: integer("radar_signal_id").notNull(),
+  price: text("price"),
+  executableBuyPrice: text("executable_buy_price"),
+  executableSellPrice: text("executable_sell_price"),
+  marketCap: real("market_cap"),
+  liquidity: real("liquidity"),
+  volume24h: real("volume_24h"),
+  holders: integer("holders"),
+  buyers: integer("buyers"),
+  sellers: integer("sellers"),
+  sourceStatusJson: text("source_status_json").notNull().default("{}"),
+  capturedAt: text("captured_at").notNull(),
+}, (table) => [
+  uniqueIndex("uidx_radar_snapshots_signal_time").on(table.radarSignalId, table.capturedAt),
+  index("idx_radar_snapshots_signal_time").on(table.radarSignalId, table.capturedAt),
+]);
+
+export const radarAnalysis = sqliteTable("radar_analysis", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  radarSignalId: integer("radar_signal_id").notNull(),
+  modelVersion: text("model_version").notNull(),
+  decision: text("decision").notNull(),
+  confidence: real("confidence").notNull().default(0),
+  narrativeScore: integer("narrative_score").notNull().default(0),
+  riskScore: integer("risk_score").notNull().default(100),
+  stage: text("stage").notNull().default("unknown"),
+  positiveReasonsJson: text("positive_reasons_json").notNull().default("[]"),
+  negativeReasonsJson: text("negative_reasons_json").notNull().default("[]"),
+  invalidatorsJson: text("invalidators_json").notNull().default("[]"),
+  recommendedAction: text("recommended_action").notNull().default("HOLD"),
+  evidenceRefsJson: text("evidence_refs_json").notNull().default("[]"),
+  inputSummaryJson: text("input_summary_json").notNull().default("{}"),
+  outputJson: text("output_json").notNull().default("{}"),
+  createdAt: text("created_at").notNull(),
+}, (table) => [index("idx_radar_analysis_signal_time").on(table.radarSignalId, table.createdAt)]);
+
+export const narrativeEvents = sqliteTable("narrative_events", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  radarSignalId: integer("radar_signal_id").notNull(),
+  source: text("source").notNull(),
+  eventType: text("event_type").notNull(),
+  title: text("title").notNull(),
+  url: text("url"),
+  author: text("author"),
+  evidenceJson: text("evidence_json").notNull().default("{}"),
+  occurredAt: text("occurred_at"),
+  capturedAt: text("captured_at").notNull(),
+}, (table) => [index("idx_narrative_events_signal_time").on(table.radarSignalId, table.capturedAt)]);
+
+export const strategySettings = sqliteTable("strategy_settings", {
+  userId: text("user_id").primaryKey(),
+  version: text("version").notNull().default("radar-paper-v1"),
+  buyAmountUsd: text("buy_amount_usd").notNull().default("25"),
+  maxPerTokenUsd: text("max_per_token_usd").notNull().default("50"),
+  maxOpenPositions: integer("max_open_positions").notNull().default(5),
+  maxDailyBuys: integer("max_daily_buys").notNull().default(5),
+  maxDailyLossUsd: text("max_daily_loss_usd").notNull().default("50"),
+  minSecurityScore: integer("min_security_score").notNull().default(70),
+  minNarrativeScore: integer("min_narrative_score").notNull().default(60),
+  minTotalScore: integer("min_total_score").notNull().default(70),
+  minAiConfidence: real("min_ai_confidence").notNull().default(0.7),
+  maxSlippageBps: integer("max_slippage_bps").notNull().default(300),
+  maxPriceImpactBps: integer("max_price_impact_bps").notNull().default(1000),
+  allowedChainsJson: text("allowed_chains_json").notNull().default("[\"sol\",\"bsc\",\"base\",\"robinhood\"]"),
+  autoTradeEnabled: integer("auto_trade_enabled").notNull().default(0),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const paperPositions = sqliteTable("paper_positions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull(),
+  radarSignalId: integer("radar_signal_id").notNull(),
+  chain: text("chain").notNull(),
+  tokenAddress: text("token_address").notNull(),
+  status: text("status").notNull().default("open"),
+  entryQuantity: text("entry_quantity").notNull(),
+  remainingQuantity: text("remaining_quantity").notNull(),
+  netCostUsd: text("net_cost_usd").notNull(),
+  realizedUsd: text("realized_usd").notNull().default("0"),
+  peakExecutableValueUsd: text("peak_executable_value_usd").notNull().default("0"),
+  currentExecutableValueUsd: text("current_executable_value_usd").notNull().default("0"),
+  nextTakeProfitMultiple: integer("next_take_profit_multiple").notNull().default(2),
+  takeProfitCount: integer("take_profit_count").notNull().default(0),
+  openedAt: text("opened_at").notNull(),
+  closedAt: text("closed_at"),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("uidx_paper_positions_user_signal").on(table.userId, table.radarSignalId),
+  index("idx_paper_positions_user_status").on(table.userId, table.status),
+]);
+
+export const paperOrders = sqliteTable("paper_orders", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  idempotencyKey: text("idempotency_key").notNull(),
+  positionId: integer("position_id"),
+  radarSignalId: integer("radar_signal_id").notNull(),
+  userId: text("user_id").notNull(),
+  side: text("side").notNull(),
+  reason: text("reason").notNull(),
+  requestedQuantity: text("requested_quantity").notNull(),
+  filledQuantity: text("filled_quantity").notNull().default("0"),
+  executablePrice: text("executable_price"),
+  grossUsd: text("gross_usd"),
+  feesUsd: text("fees_usd"),
+  netUsd: text("net_usd"),
+  status: text("status").notNull().default("pending"),
+  failureReason: text("failure_reason"),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("uidx_paper_orders_idempotency").on(table.idempotencyKey),
+  index("idx_paper_orders_user_time").on(table.userId, table.createdAt),
+]);
+
+export const positionEvents = sqliteTable("position_events", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  positionId: integer("position_id").notNull(),
+  eventKey: text("event_key").notNull(),
+  eventType: text("event_type").notNull(),
+  payloadJson: text("payload_json").notNull().default("{}"),
+  createdAt: text("created_at").notNull(),
+}, (table) => [
+  uniqueIndex("uidx_position_events_key").on(table.positionId, table.eventKey),
+  index("idx_position_events_time").on(table.positionId, table.createdAt),
+]);
+
+export const exitLadders = sqliteTable("exit_ladders", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  positionId: integer("position_id").notNull(),
+  multiple: integer("multiple").notNull(),
+  sellRemainingBps: integer("sell_remaining_bps").notNull().default(5000),
+  status: text("status").notNull().default("pending"),
+  triggeredAt: text("triggered_at"),
+  completedAt: text("completed_at"),
+}, (table) => [uniqueIndex("uidx_exit_ladders_position_multiple").on(table.positionId, table.multiple)]);
+
+export const executionAttempts = sqliteTable("execution_attempts", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  mode: text("mode").notNull().default("paper"),
+  orderId: integer("order_id"),
+  action: text("action").notNull(),
+  state: text("state").notNull(),
+  attemptNumber: integer("attempt_number").notNull().default(1),
+  errorCode: text("error_code"),
+  errorMessage: text("error_message"),
+  requestSummaryJson: text("request_summary_json").notNull().default("{}"),
+  createdAt: text("created_at").notNull(),
+}, (table) => [index("idx_execution_attempts_order").on(table.orderId, table.createdAt)]);
+
+export const tradeOutcomes = sqliteTable("trade_outcomes", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  radarSignalId: integer("radar_signal_id").notNull(),
+  horizon: text("horizon").notNull(),
+  observedAt: text("observed_at").notNull(),
+  netReturnBps: integer("net_return_bps"),
+  maxUpsideBps: integer("max_upside_bps"),
+  maxDrawdownBps: integer("max_drawdown_bps"),
+  sellable: integer("sellable"),
+  liquidityRemoved: integer("liquidity_removed").notNull().default(0),
+  zeroed: integer("zeroed").notNull().default(0),
+  paperResultJson: text("paper_result_json").notNull().default("{}"),
+  dataFreshnessMs: integer("data_freshness_ms"),
+}, (table) => [uniqueIndex("uidx_trade_outcomes_signal_horizon").on(table.radarSignalId, table.horizon)]);
+
+export const userWalletAccounts = sqliteTable("user_wallet_accounts", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull(),
+  namespace: text("namespace").notNull(),
+  chain: text("chain").notNull(),
+  walletAddress: text("wallet_address").notNull(),
+  verifiedAt: text("verified_at").notNull(),
+  lastLoginAt: text("last_login_at"),
+}, (table) => [uniqueIndex("uidx_wallet_accounts_identity").on(table.namespace, table.chain, table.walletAddress)]);
+
+export const userTradingWallets = sqliteTable("user_trading_wallets", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull(),
+  namespace: text("namespace").notNull(),
+  publicAddress: text("public_address"),
+  custodyProvider: text("custody_provider").notNull().default("NOT_PROVISIONED"),
+  keyReference: text("key_reference"),
+  status: text("status").notNull().default("disabled"),
+  withdrawalAllowlistJson: text("withdrawal_allowlist_json").notNull().default("[]"),
+  dailyLimitUsd: text("daily_limit_usd").notNull().default("0"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [uniqueIndex("uidx_trading_wallets_user_namespace").on(table.userId, table.namespace)]);
+
+export const walletAuthNonces = sqliteTable("wallet_auth_nonces", {
+  nonceHash: text("nonce_hash").primaryKey(),
+  namespace: text("namespace").notNull(),
+  chain: text("chain").notNull(),
+  walletAddress: text("wallet_address").notNull(),
+  expiresAt: text("expires_at").notNull(),
+  consumedAt: text("consumed_at"),
+  createdAt: text("created_at").notNull(),
+}, (table) => [index("idx_wallet_auth_nonces_expiry").on(table.expiresAt)]);

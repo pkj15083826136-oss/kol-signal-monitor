@@ -13,7 +13,7 @@ async function loadSignals(): Promise<{ signals: SignalRow[]; lastRun: string | 
     const db = env.DB;
     if (!db) throw new Error("DB binding 未配置");
     const rows = await db.prepare(`SELECT id, chain, token_address, name, symbol, logo, threshold, holder_count, price, market_cap,
-      liquidity, holders, volume_24h, gmgn_theme, ai_analysis, wallet_names_json, alerted_at
+      liquidity, holders, volume_24h, gmgn_theme, ai_analysis, wallet_names_json, alerted_at, signal_origin, radar_score
       FROM signals WHERE alert_status != 'suppressed' ORDER BY alerted_at DESC LIMIT 60`).all<Record<string, unknown>>();
     const [run, chainRows, sourceRows, alertRows] = await Promise.all([
       db.prepare("SELECT status, finished_at FROM monitor_runs ORDER BY id DESC LIMIT 1").first<{ status: string; finished_at: string }>(),
@@ -28,7 +28,7 @@ async function loadSignals(): Promise<{ signals: SignalRow[]; lastRun: string | 
         id: Number(row.id), chain: String(row.chain), tokenAddress: String(row.token_address), name: identity.name, symbol: identity.symbol, logo: String(row.logo || ""),
         threshold: Number(row.threshold), holderCount: Number(row.holder_count), price: Number(row.price), marketCap: Number(row.market_cap), liquidity: Number(row.liquidity),
         holders: Number(row.holders), volume24h: Number(row.volume_24h), gmgnTheme: String(row.gmgn_theme), aiAnalysis: String(row.ai_analysis),
-        walletNames: JSON.parse(String(row.wallet_names_json || "[]")), createdAt: String(row.alerted_at),
+        walletNames: JSON.parse(String(row.wallet_names_json || "[]")), createdAt: String(row.alerted_at), signalOrigin: String(row.signal_origin || "kol_monitor"), radarScore: row.radar_score === null || row.radar_score === undefined ? null : Number(row.radar_score),
       }); }).filter((signal) => !isRejectedTokenIdentity(signal.chain, signal.tokenAddress) && !isMatureBaseAsset(signal.symbol)),
       lastRun: run?.finished_at ?? null,
       monitorOk: run?.status === "success",

@@ -78,6 +78,20 @@
       "when": 1789923677926,
       "tag": "0010_motionless_champions",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1790003093154,
+      "tag": "0011_wonderful_may_parker",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1790003344981,
+      "tag": "0012_flippant_leopardon",
+      "breakpoints": true
     }
   ]
 }
