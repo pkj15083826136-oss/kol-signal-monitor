@@ -50,9 +50,23 @@
 - `pnpm audit --prod`：1 high、3 moderate，均来自既有 Reown/Solana/WalletConnect 传递链（`bigint-buffer`、`uuid`、`decode-uri-component`、`stream-json`）。钱包及全部交易开关关闭；为避免跨版本破坏已验收钱包代码，本阶段不强制 override，后续在独立依赖升级分支处理。
 - 本地 Playwright 开发服务器在 120 秒内未完成监听，结果为 `BLOCKED_LOCAL_PREVIEW_STARTUP`，不能写成通过；生产发布后必须重新执行 `/radar` 的 375、390 和桌面验证。
 
+## 生产验收
+
+- 原 Site 公共地址发布成功，D1 overview 确认原 `DB` binding 上25张表均存在，其中包含全部15张雷达/Paper/钱包骨架表；没有创建替代数据库。
+- 生产 `/api/radar/signals` 返回40条真实现有信号的备用候选、`usingFallback=true`、`aveSmartStatus=BLOCKED_EXTERNAL_ENDPOINT`、Paper仓位0、Paper订单0；页面没有把备用候选伪装成已通过AI或已成交。
+- 未带鉴权调用 `/api/radar/collect` 和 `/api/radar/training` 均返回 HTTP 401。
+- 生产 Playwright：4项执行、4项通过、3项按既有环境条件跳过；375×812、390×844、桌面列表/详情、返回导航、K线周期缓存及 `/radar` 独立页面均通过。雷达专项用例另跑1/1通过。
+- 四链真实 token API smoke：Solana、BSC、Base、Robinhood 均返回 `identityVerified=true` 且价格、市值、流动性为正；Robinhood样本命中 last-known-good `cached:signal`，其余抽样命中 OKX Onchain。
+- 发布后20分钟错误日志没有 Worker 异常。日志中的 `canceled` 是 Playwright页面跳转/结束时取消的行情请求；两个401是本验收主动测试未授权雷达接口的预期结果。
+- 生产环境最终值：`FEATURE_WALLET_CONNECT=false`、`FEATURE_RADAR_WALLET_LOGIN=false`、`FEATURE_RADAR_AUTOTRADE=false`、`FEATURE_TRADE_QUOTE=false`、`FEATURE_TRADE_TESTNET=false`、`FEATURE_TRADE_MAINNET=false`，四个逐链主网开关全部false。`FEATURE_LIVE_MARKET=true` 保持不变。
+
+截图：
+
+- `docs/screenshots/production-v59-radar-desktop-viewport.png`
+- `docs/screenshots/production-v59-radar-mobile-viewport.png`
+
 ## 回滚
 
 1. 将原 Site 重新部署到 Version 58，可立即移除新页面和 API。
 2. 保持 `FEATURE_RADAR_WALLET_LOGIN=false`、`FEATURE_RADAR_AUTOTRADE=false` 及全部交易 flags 为 false。
 3. 新表/列与旧代码兼容，不需要删除。若必须物理回退，使用部署前 D1 Time Travel；不得直接 DROP 表。
-

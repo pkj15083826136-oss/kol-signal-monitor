@@ -243,4 +243,4 @@ GitHub Actions Run #27（`35482576316`，GitHub提交`b4db2cf`）调用生产v46
 
 已在原 Site 源码中新增独立 `/radar` 页面、确定性硬过滤、100分评分、Grok严格结构化审核、受保护候选入口、原 signals 安全同步、Paper退出状态机、训练数据导出和钱包/KMS禁用骨架。Ave Smart 没有可验证公开接口，状态明确为 `BLOCKED_EXTERNAL_ENDPOINT`；当前备用来源是现有 GMGN KOL 聚集，缺少安全证据时默认 `HOLD`。
 
-新增迁移只增加15张表和3个signals标签列，不删除或覆盖生产数据。钱包、雷达钱包登录、自动交易、报价、测试网、主网及所有逐链广播开关均为false。完整范围、测试、审计告警和回滚见 `docs/RADAR_PHASE_1_ACCEPTANCE.md`；生产版本、截图和生产浏览器结果在发布完成后补记。
+新增迁移只增加15张表和3个signals标签列，不删除或覆盖生产数据。钱包、雷达钱包登录、自动交易、报价、测试网、主网及所有逐链广播开关均为false。生产D1表、受保护API、四链真实行情smoke以及375/390/桌面Playwright均已验收；完整范围、截图、测试、审计告警和回滚见 `docs/RADAR_PHASE_1_ACCEPTANCE.md`。
