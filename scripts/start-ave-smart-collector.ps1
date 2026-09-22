@@ -31,7 +31,7 @@ New-Item -ItemType Directory -Force -Path $stateRoot, $profileDir | Out-Null
 $secureSecret = $null
 if (Test-Path -LiteralPath $secretFile) {
   Write-Step "正在读取仅限当前Windows用户的加密采集凭据…"
-  $secureSecret = Get-Content -Raw -LiteralPath $secretFile | ConvertTo-SecureString
+  $secureSecret = (Get-Content -Raw -LiteralPath $secretFile).Trim() | ConvertTo-SecureString
 } else {
   Write-Host "尚未配置本机采集凭据。请在此窗口粘贴 AVE_COLLECTOR_SECRET；输入不会显示，也不会写入仓库。" -ForegroundColor Yellow
   $secureSecret = Read-Host -AsSecureString "AVE_COLLECTOR_SECRET"
