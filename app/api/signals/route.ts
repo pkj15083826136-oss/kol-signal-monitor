@@ -25,7 +25,10 @@ export async function GET(request: Request) {
   const db = env.DB; if (!db) return Response.json({ error: "DB binding 未配置" }, { status: 500 });
   const url = new URL(request.url); const cursor = decodeSignalCursor(url.searchParams.get("cursor")); const chain = url.searchParams.get("chain")?.trim().toLowerCase() || "all"; const query = url.searchParams.get("q")?.trim() || ""; const history = url.searchParams.get("history") === "1" || query.length > 0; const limit = signalPageLimit(Number(url.searchParams.get("limit")));
   const cap = await marketCapLimit(db); const where: string[] = ["alert_status != 'suppressed'", "signal_origin != 'radar'"]; const bindings: unknown[] = [];
-  if (!history) { where.push("market_cap > 0 AND market_cap < ?"); bindings.push(cap); }
+  if (!history) {
+    where.push("market_cap > 0 AND market_cap < ?"); bindings.push(cap);
+    where.push("NOT EXISTS (SELECT 1 FROM market_reviews mr WHERE mr.chain = signals.chain AND mr.token_address = signals.token_address AND (mr.status = 'suppressed' OR (mr.market_cap IS NOT NULL AND mr.market_cap >= ?)))"); bindings.push(cap);
+  }
   if (["sol", "bsc", "base", "robinhood"].includes(chain)) { where.push("chain = ?"); bindings.push(chain); }
   if (query) { where.push("(lower(name) LIKE ? OR lower(symbol) LIKE ? OR lower(token_address) LIKE ?)"); const like = `%${query.toLowerCase()}%`; bindings.push(like, like, like); }
   if (cursor) { where.push("(alerted_at < ? OR (alerted_at = ? AND id < ?))"); bindings.push(cursor.alertedAt, cursor.alertedAt, cursor.id); }

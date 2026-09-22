@@ -18,7 +18,9 @@ async function loadSignals(): Promise<{ signals: SignalRow[]; nextCursor: string
     const cap = parseMarketCapLimit(configured?.value ?? (env as unknown as Record<string, unknown>).KOL_ALERT_MAX_MARKET_CAP, DEFAULT_KOL_ALERT_MAX_MARKET_CAP);
     const rows = await db.prepare(`SELECT id, chain, token_address, name, symbol, logo, threshold, holder_count, price, market_cap,
       liquidity, holders, volume_24h, gmgn_theme, ai_analysis, wallet_names_json, alerted_at, signal_origin, radar_score
-      FROM signals WHERE alert_status != 'suppressed' AND signal_origin != 'radar' AND market_cap > 0 AND market_cap < ? ORDER BY alerted_at DESC,id DESC LIMIT 21`).bind(cap).all<Record<string, unknown>>();
+      FROM signals WHERE alert_status != 'suppressed' AND signal_origin != 'radar' AND market_cap > 0 AND market_cap < ?
+      AND NOT EXISTS (SELECT 1 FROM market_reviews mr WHERE mr.chain = signals.chain AND mr.token_address = signals.token_address AND (mr.status = 'suppressed' OR (mr.market_cap IS NOT NULL AND mr.market_cap >= ?)))
+      ORDER BY alerted_at DESC,id DESC LIMIT 21`).bind(cap, cap).all<Record<string, unknown>>();
     const [run, chainRows, sourceRows, alertRows] = await Promise.all([
       db.prepare("SELECT status, finished_at FROM monitor_runs ORDER BY id DESC LIMIT 1").first<{ status: string; finished_at: string }>(),
       db.prepare("SELECT chain, status, finished_at FROM monitor_runs WHERE chain != '' AND id IN (SELECT MAX(id) FROM monitor_runs WHERE chain != '' GROUP BY chain)").all<Record<string, unknown>>(),

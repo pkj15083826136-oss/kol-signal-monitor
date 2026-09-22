@@ -92,6 +92,13 @@ describe("phase 1.1 production contracts", () => {
   it("parses Ave browser fields without claiming identity verification", () => { const buffer = new AveSmartEventBuffer(); const [candidate] = buffer.ingest([{ id: "a", token: "So11111111111111111111111111111111111111112", chain: "solana", symbol: "T", current_price_usd: "0.2", mc_cur: "200000", holders_cur: "42" }]); expect(candidate).toMatchObject({ source: "ave_smart_browser", marketCap: 200000, holders: 42, identityVerified: false }); });
   it("does not persist collector secrets in source", () => { const collector = readFileSync(new URL("../scripts/ave-smart-collector.mjs", import.meta.url), "utf8"); expect(collector).not.toMatch(/(?:api[_-]?key|secret)\s*=\s*["'][A-Za-z0-9_-]{16,}["']/i); expect(collector).toContain("process.env.MONITOR_SECRET"); });
   it("uses cursor SQL rather than loading all rows", () => { const route = readFileSync(new URL("../app/api/signals/route.ts", import.meta.url), "utf8"); expect(route).toContain("LIMIT ?"); expect(route).toContain("alerted_at < ?"); expect(route).not.toContain("LIMIT 80"); });
+  it("filters the normal feed with the verified market review instead of a stale signal snapshot", () => {
+    const route = readFileSync(new URL("../app/api/signals/route.ts", import.meta.url), "utf8");
+    const page = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
+    expect(route).toContain("FROM market_reviews mr");
+    expect(route).toContain("mr.market_cap >= ?");
+    expect(page).toContain("FROM market_reviews mr");
+  });
   it("refreshes only the client-visible token set", () => { const dashboard = readFileSync(new URL("../app/dashboard.tsx", import.meta.url), "utf8"); expect(dashboard).toContain("visibleIds.has"); expect(dashboard).toContain("IntersectionObserver"); });
   it("keeps the phase 1.1 migration additive", () => { const sql = readFileSync(new URL("../drizzle/0013_conscious_kat_farrell.sql", import.meta.url), "utf8"); expect(sql).toContain("CREATE TABLE `system_settings`"); expect(sql).toContain("CREATE TABLE `narrative_samples`"); expect(sql).not.toMatch(/DROP\s+TABLE|DELETE\s+FROM|ALTER\s+TABLE.*DROP/i); });
 });
