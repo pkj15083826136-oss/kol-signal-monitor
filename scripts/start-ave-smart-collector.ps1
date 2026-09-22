@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 $stateRoot = Join-Path $env:LOCALAPPDATA "KOLSignalMonitor"
 $profileDir = Join-Path $stateRoot "AveSmartProfile"
 $secretFile = Join-Path $stateRoot "ave-collector-secret.dpapi"

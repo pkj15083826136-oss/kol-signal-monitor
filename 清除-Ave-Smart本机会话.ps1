@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 $stateRoot = Join-Path $env:LOCALAPPDATA "KOLSignalMonitor"
 $pidFile = Join-Path $stateRoot "ave-collector.pid"
 if (Test-Path -LiteralPath $pidFile) { throw "请先运行 停止-Ave-Smart采集器.ps1。" }

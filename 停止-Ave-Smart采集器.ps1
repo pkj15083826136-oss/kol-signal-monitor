@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 $pidFile = Join-Path $env:LOCALAPPDATA "KOLSignalMonitor\ave-collector.pid"
 if (-not (Test-Path -LiteralPath $pidFile)) {
   Write-Host "Ave Smart采集器当前未运行。"
