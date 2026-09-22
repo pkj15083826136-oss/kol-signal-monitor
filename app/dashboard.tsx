@@ -127,7 +127,7 @@ export default function Dashboard({ signals: initialSignals, initialNextCursor, 
 
 function SystemStatus({ chains, sources, alerts }: { chains: ChainHealth[]; sources: SourceHealth[]; alerts: AlertSummary }) {
   const tone: Record<string, string> = { healthy: "bg-emerald-300", degraded: "bg-red-400", error: "bg-red-400", stale: "bg-amber-300", rate_limited: "bg-amber-300", blocked: "bg-amber-300", unavailable: "bg-red-400", off: "bg-slate-600", unconfigured: "bg-slate-600", unknown: "bg-slate-600" };
-  const enabled = sources.filter((source) => !["off", "unconfigured"].includes(source.state));
+  const enabled = sources.filter((source) => source.chain !== "all" && !["off", "unconfigured"].includes(source.state));
   const sourceHealthy = enabled.filter((source) => source.state === "healthy").length;
   const sourceDelayed = enabled.filter((source) => ["stale", "rate_limited", "degraded"].includes(source.state)).length;
   const sourceBlocked = enabled.filter((source) => source.state === "blocked").length;
