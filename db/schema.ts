@@ -121,6 +121,22 @@ export const sourceHealth = sqliteTable("source_health", {
   impact: text("impact").notNull().default("none"),
 }, (table) => [primaryKey({ columns: [table.source, table.chain] })]);
 
+export const collectorStatus = sqliteTable("collector_status", {
+  source: text("source").primaryKey(),
+  instanceId: text("instance_id").notNull(),
+  connectionStatus: text("connection_status").notNull().default("not_started"),
+  loginStatus: text("login_status").notNull().default("unknown"),
+  websocketStatus: text("websocket_status").notNull().default("unknown"),
+  lastHeartbeatAt: text("last_heartbeat_at"),
+  lastEventAt: text("last_event_at"),
+  lastUploadAt: text("last_upload_at"),
+  capturedCount: integer("captured_count").notNull().default(0),
+  uploadedCount: integer("uploaded_count").notNull().default(0),
+  dedupCount: integer("dedup_count").notNull().default(0),
+  lastError: text("last_error"),
+  updatedAt: text("updated_at").notNull(),
+});
+
 export const providerSamples = sqliteTable("provider_samples", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   source: text("source").notNull(),

@@ -1,19 +1,225 @@
 import { chromium } from "@playwright/test";
-import { mkdir } from "node:fs/promises";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import path from "node:path";
 
 const site = String(process.env.AVE_COLLECTOR_SITE_URL || "").replace(/\/$/, "");
-const secret = String(process.env.MONITOR_SECRET || "");
-const profile = String(process.env.AVE_COLLECTOR_PROFILE_DIR || "");
-if (!site || !secret || !profile) throw new Error("AVE_COLLECTOR_SITE_URL、MONITOR_SECRET、AVE_COLLECTOR_PROFILE_DIR 必须在本机环境变量中配置");
-if (profile.includes(".git") || profile.includes("链上早期信号")) throw new Error("浏览器会话目录必须位于仓库之外");
-await mkdir(profile, { recursive: true });
-const seen = new Set(); let lastHeartbeat = 0;
-async function post(candidates, status, error = "") { const response = await fetch(`${site}/api/radar/collect`, { method: "POST", headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" }, body: JSON.stringify({ source: "ave_smart_browser", status, error: error.slice(0, 300), heartbeatAt: new Date().toISOString(), candidates }) }); if (!response.ok) throw new Error(`采集接口返回 ${response.status}`); }
-async function run() {
-  const context = await chromium.launchPersistentContext(profile, { headless: false, channel: "msedge" }); const page = context.pages()[0] || await context.newPage();
-  page.on("response", async (response) => { if (!response.url().includes("/v2api/signals/v2/public/list/v4") || !response.ok()) return; try { const payload = await response.json(); const rows = Array.isArray(payload?.data) ? payload.data : []; const candidates = rows.filter((row) => row?.id && !seen.has(String(row.id))).map((row) => { seen.add(String(row.id)); return { source: "ave_smart_browser", sourceEventId: String(row.id), chain: String(row.chain || "").toLowerCase().includes("sol") ? "sol" : String(row.chain || "").toLowerCase().includes("base") ? "base" : String(row.chain || "").toLowerCase().includes("robinhood") ? "robinhood" : "bsc", tokenAddress: String(row.token || ""), pairAddress: typeof row.amm === "string" ? row.amm : null, name: String(row.headline || row.symbol || "Unknown"), symbol: String(row.symbol || "—"), firstSeenAt: new Date(Number(row.signal_time || row.first_signal_time || Date.now()) * (Number(row.signal_time || row.first_signal_time) < 1e12 ? 1000 : 1)).toISOString(), poolCreatedAt: null, price: row.current_price_usd == null ? null : String(row.current_price_usd), marketCap: Number(row.mc_cur ?? row.mc) || null, liquidity: null, volume24h: Number(row.tx_volume_u_24h) || null, holders: Number(row.holders_cur ?? row.holders) || null, buyers: null, sellers: null, smartMoneyCount: Number(row.action_count) || 0, dataFetchedAt: new Date().toISOString(), identityVerified: false, sellSimulationPassed: null, honeypot: null, mintable: null, freezable: null, blacklistable: null, taxModifiable: null, buyTaxBps: null, sellTaxBps: null, lpLocked: null, topHolderPct: Number(row.top10_ratio) || null, developerRisk: "unknown", priceImpactBps: null, sourceConflict: false, rawSnapshot: { id: row.id, token: row.token, chain: row.chain, signal_time: row.signal_time, signal_type: row.signal_type, tag: row.tag, issue_platform: row.issue_platform, first_signal_mc: row.first_signal_mc, mc_cur: row.mc_cur, holders_cur: row.holders_cur, top10_ratio: row.top10_ratio, current_price_usd: row.current_price_usd } }; }).filter((row) => row.tokenAddress); if (candidates.length) await post(candidates, "healthy"); } catch (error) { await post([], "error", error instanceof Error ? error.message : "parse_failed").catch(() => {}); } });
-  await page.goto("https://ave.ai/smart", { waitUntil: "domcontentloaded" });
-  const timer = setInterval(() => { if (Date.now() - lastHeartbeat < 55_000) return; lastHeartbeat = Date.now(); void post([], "healthy").catch(() => {}); }, 60_000);
-  await new Promise((resolve) => context.on("close", resolve)); clearInterval(timer);
+const secret = String(process.env.AVE_COLLECTOR_SECRET || "");
+const profileDir = String(process.env.AVE_COLLECTOR_PROFILE_DIR || "");
+const stateDir = String(process.env.AVE_COLLECTOR_STATE_DIR || "");
+if (!site || !secret || !profileDir || !stateDir) {
+  throw new Error("采集器缺少必要的本机安全配置，请使用一键启动脚本");
 }
-for (;;) { try { await run(); } catch (error) { await post([], "error", error instanceof Error ? error.message : "collector_failed").catch(() => {}); await new Promise((resolve) => setTimeout(resolve, 5000)); } }
+if (profileDir.includes(".git") || profileDir.includes("链上早期信号")) {
+  throw new Error("浏览器会话目录必须位于仓库之外");
+}
+
+await mkdir(profileDir, { recursive: true });
+await mkdir(stateDir, { recursive: true });
+const pidFile = path.join(stateDir, "ave-collector.pid");
+await writeFile(pidFile, String(process.pid), "utf8");
+
+const instanceId = randomUUID();
+const seen = new Set();
+const stats = {
+  connectionStatus: "starting",
+  loginStatus: "unknown",
+  websocketStatus: "connecting",
+  lastEventAt: null,
+  lastUploadAt: null,
+  capturedCount: 0,
+  uploadedCount: 0,
+  dedupCount: 0,
+};
+let stopping = false;
+let activeContext = null;
+
+function collectorStatus() {
+  return { instanceId, ...stats };
+}
+
+async function post(candidates = [], status = "healthy", error = "") {
+  const response = await fetch(`${site}/api/radar/collect`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      source: "ave_smart_browser",
+      status,
+      error: String(error).slice(0, 300),
+      heartbeatAt: new Date().toISOString(),
+      collector: collectorStatus(),
+      candidates,
+    }),
+  });
+  if (!response.ok) throw new Error(`采集接口返回 ${response.status}`);
+  if (candidates.length) {
+    stats.uploadedCount += candidates.length;
+    stats.lastUploadAt = new Date().toISOString();
+  }
+}
+
+function chainOf(value) {
+  const chain = String(value || "").toLowerCase();
+  if (chain.includes("sol")) return "sol";
+  if (chain.includes("base")) return "base";
+  if (chain.includes("robinhood")) return "robinhood";
+  return "bsc";
+}
+
+function asNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function asIso(value) {
+  const parsed = Number(value);
+  const date = Number.isFinite(parsed)
+    ? new Date(parsed < 1e12 ? parsed * 1000 : parsed)
+    : new Date();
+  return Number.isFinite(date.getTime()) ? date.toISOString() : new Date().toISOString();
+}
+
+function mapRows(payload) {
+  const rows = Array.isArray(payload?.data) ? payload.data : [];
+  const candidates = [];
+  for (const row of rows) {
+    if (!row?.id) continue;
+    const eventId = String(row.id);
+    if (seen.has(eventId)) {
+      stats.dedupCount += 1;
+      continue;
+    }
+    seen.add(eventId);
+    const tokenAddress = String(row.token || "").trim();
+    if (!tokenAddress) continue;
+    stats.capturedCount += 1;
+    candidates.push({
+      source: "ave_smart_browser",
+      sourceEventId: eventId,
+      chain: chainOf(row.chain),
+      tokenAddress,
+      pairAddress: typeof row.amm === "string" ? row.amm : null,
+      name: String(row.headline || row.symbol || "Unknown"),
+      symbol: String(row.symbol || "—"),
+      firstSeenAt: asIso(row.signal_time || row.first_signal_time || Date.now()),
+      poolCreatedAt: null,
+      price: row.current_price_usd == null ? null : String(row.current_price_usd),
+      marketCap: asNumber(row.mc_cur ?? row.mc),
+      liquidity: null,
+      volume24h: asNumber(row.tx_volume_u_24h),
+      holders: asNumber(row.holders_cur ?? row.holders),
+      buyers: null,
+      sellers: null,
+      smartMoneyCount: asNumber(row.action_count) || 0,
+      dataFetchedAt: new Date().toISOString(),
+      identityVerified: false,
+      sellSimulationPassed: null,
+      honeypot: null,
+      mintable: null,
+      freezable: null,
+      blacklistable: null,
+      taxModifiable: null,
+      buyTaxBps: null,
+      sellTaxBps: null,
+      lpLocked: null,
+      topHolderPct: asNumber(row.top10_ratio),
+      developerRisk: "unknown",
+      priceImpactBps: null,
+      sourceConflict: false,
+      rawSnapshot: {
+        id: row.id,
+        token: row.token,
+        chain: row.chain,
+        signal_time: row.signal_time,
+        signal_type: row.signal_type,
+        tag: row.tag,
+        issue_platform: row.issue_platform,
+        first_signal_mc: row.first_signal_mc,
+        mc_cur: row.mc_cur,
+        holders_cur: row.holders_cur,
+        top10_ratio: row.top10_ratio,
+        current_price_usd: row.current_price_usd,
+      },
+    });
+  }
+  return candidates;
+}
+
+async function runBrowser() {
+  stats.connectionStatus = "connecting";
+  stats.websocketStatus = "connecting";
+  const context = await chromium.launchPersistentContext(profileDir, {
+    headless: false,
+    channel: "msedge",
+  });
+  activeContext = context;
+  const page = context.pages()[0] || await context.newPage();
+  stats.connectionStatus = "connected";
+
+  page.on("websocket", (socket) => {
+    stats.websocketStatus = "connected";
+    socket.on("framereceived", () => {
+      stats.lastEventAt = new Date().toISOString();
+    });
+    socket.on("close", () => {
+      stats.websocketStatus = "disconnected";
+    });
+  });
+  page.on("requestfailed", (request) => {
+    if (request.resourceType() === "websocket") stats.websocketStatus = "disconnected";
+  });
+  page.on("response", async (response) => {
+    if (!response.url().includes("/v2api/signals/v2/public/list/v4")) return;
+    stats.lastEventAt = new Date().toISOString();
+    if (response.status() === 401 || response.status() === 403) {
+      stats.loginStatus = "required";
+      await post([], "login_expired", `Ave接口返回 ${response.status()}`).catch(() => {});
+      return;
+    }
+    if (!response.ok()) return;
+    try {
+      const candidates = mapRows(await response.json());
+      stats.loginStatus = "not_required";
+      await post(candidates, "healthy");
+    } catch (error) {
+      await post([], "error", error instanceof Error ? error.message : "parse_failed").catch(() => {});
+    }
+  });
+
+  await page.goto("https://ave.ai/smart", { waitUntil: "domcontentloaded", timeout: 45_000 });
+  await post([], "healthy");
+  const timer = setInterval(() => {
+    void post([], stats.connectionStatus === "connected" ? "healthy" : "error").catch((error) => {
+      console.error(`[${instanceId.slice(0, 8)}] 心跳上传失败：${error instanceof Error ? error.message : "unknown"}`);
+    });
+  }, 60_000);
+  await new Promise((resolve) => context.once("close", resolve));
+  activeContext = null;
+  clearInterval(timer);
+  stats.connectionStatus = "disconnected";
+  stats.websocketStatus = "disconnected";
+}
+
+async function stop() {
+  stopping = true;
+  await activeContext?.close().catch(() => {});
+  await unlink(pidFile).catch(() => {});
+}
+process.once("SIGINT", () => { void stop(); });
+process.once("SIGTERM", () => { void stop(); });
+
+console.log(`[${instanceId.slice(0, 8)}] Ave Smart采集器已启动；浏览器会话仅保存在本机。`);
+while (!stopping) {
+  try {
+    await runBrowser();
+  } catch (error) {
+    stats.connectionStatus = "disconnected";
+    stats.websocketStatus = "disconnected";
+    const message = error instanceof Error ? error.message : "collector_failed";
+    await post([], "error", message).catch(() => {});
+    console.error(`[${instanceId.slice(0, 8)}] 采集器将自动恢复：${message}`);
+  }
+  if (!stopping) await new Promise((resolve) => setTimeout(resolve, 5_000));
+}
+await unlink(pidFile).catch(() => {});

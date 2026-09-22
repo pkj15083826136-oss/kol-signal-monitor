@@ -11,6 +11,7 @@ import { useLiveMarket } from "@/lib/use-live-market";
 import { isMarketStale, marketKey, type LiveMarketItem, type MarketDirection } from "@/lib/market-live";
 import { chainLabel, chainTone } from "@/lib/chains";
 import { formatSignalAge, formatUsdCompact } from "@/lib/market-format";
+import type { ContinuityStatus } from "@/lib/continuity";
 
 export type SignalRow = {
   id: number; chain: string; tokenAddress: string; name: string; symbol: string; logo: string; threshold: number; holderCount: number;
@@ -29,13 +30,14 @@ function shortAddress(value: string) { return value.length > 16 ? `${value.slice
 function validImage(value: string) { return /^https:\/\//i.test(value); }
 function hotScore(signal: SignalRow) { return signal.holderCount * 100_000_000 + signal.threshold * 1_000_000 + Math.log10(Math.max(1, signal.volume24h)) * 10_000 + Number(new Date(signal.createdAt)) / 100_000_000; }
 
-export default function Dashboard({ signals: initialSignals, initialNextCursor, walletCount, lastRun: initialLastRun, monitorOk: initialMonitorOk, demo, liveMarketEnabled, chainHealth: initialChainHealth, sourceHealth: initialSourceHealth, alertSummary: initialAlertSummary }: { signals: SignalRow[]; initialNextCursor: string | null; walletCount: number; lastRun: string | null; monitorOk: boolean; demo: boolean; liveMarketEnabled: boolean; chainHealth: ChainHealth[]; sourceHealth: SourceHealth[]; alertSummary: AlertSummary }) {
+export default function Dashboard({ signals: initialSignals, initialNextCursor, walletCount, lastRun: initialLastRun, monitorOk: initialMonitorOk, demo, liveMarketEnabled, chainHealth: initialChainHealth, sourceHealth: initialSourceHealth, alertSummary: initialAlertSummary, initialContinuity }: { signals: SignalRow[]; initialNextCursor: string | null; walletCount: number; lastRun: string | null; monitorOk: boolean; demo: boolean; liveMarketEnabled: boolean; chainHealth: ChainHealth[]; sourceHealth: SourceHealth[]; alertSummary: AlertSummary; initialContinuity: ContinuityStatus }) {
   const [signals, setSignals] = useState(initialSignals);
   const [lastRun, setLastRun] = useState(initialLastRun);
   const [monitorOk, setMonitorOk] = useState(initialMonitorOk);
   const [chainHealth, setChainHealth] = useState(initialChainHealth);
   const [sourceHealth, setSourceHealth] = useState(initialSourceHealth);
   const [alertSummary, setAlertSummary] = useState(initialAlertSummary);
+  const [continuity, setContinuity] = useState(initialContinuity);
   const [savedState] = useState(initialListState);
   const [chain, setChain] = useState(savedState.chain);
   const [query, setQuery] = useState(savedState.query);
@@ -56,6 +58,17 @@ export default function Dashboard({ signals: initialSignals, initialNextCursor, 
     return () => window.removeEventListener("scroll", save);
   }, [chain, query]);
   useEffect(() => { const timer = window.setInterval(() => setClockNow(Date.now()), 30_000); return () => window.clearInterval(timer); }, []);
+  useEffect(() => {
+    let active = true;
+    const refresh = async () => {
+      try {
+        const response = await fetch("/api/continuity", { cache: "no-store" });
+        if (response.ok && active) setContinuity(await response.json() as ContinuityStatus);
+      } catch { /* retain last-known-good status */ }
+    };
+    const timer = window.setInterval(refresh, 60_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, []);
   useEffect(() => {
     if (demo) return;
     let active = true;
@@ -90,11 +103,13 @@ export default function Dashboard({ signals: initialSignals, initialNextCursor, 
   const live = useLiveMarket(liveTokens, liveMarketEnabled);
   const highQuality = signals.filter((signal) => signal.threshold >= 38).length;
   const uniqueTokens = new Set(signals.map((signal) => `${signal.chain}:${signal.tokenAddress}`)).size;
+  const continuityOk = monitorOk && chainHealth.every((item) => item.state === "healthy") && continuity.github.schedule === "healthy" && continuity.github.sync === "aligned";
   return <main className="min-h-screen overflow-x-hidden bg-[#070a0f] text-[#edf2f7]">
     <div className="ambient" />
-    <header className="sticky top-0 z-30 border-b border-white/[0.07] bg-[#070a0f]/85 backdrop-blur-xl"><div className="mx-auto flex h-16 max-w-[1500px] items-center justify-between px-4 sm:px-7"><div className="flex items-center gap-3"><div className="grid h-9 w-9 place-items-center rounded-xl border border-cyan-300/20 bg-cyan-300/10 text-cyan-300"><RadioTower size={18} /></div><div><div className="font-semibold tracking-tight">KOL Signal</div><div className="text-[11px] tracking-[0.18em] text-slate-500">SMART FLOW MONITOR</div></div></div><div className="flex items-center gap-2 text-sm"><a href="/history" className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-slate-400 hover:text-slate-200"><History size={14}/><span className="hidden md:inline">历史</span></a><a href="/radar" className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-300/15 bg-cyan-300/[0.06] px-2.5 py-1.5 text-xs text-cyan-200 hover:bg-cyan-300/[0.1]"><Radar size={14}/><span className="hidden sm:inline">土狗雷达</span></a><span className="hidden text-slate-500 xl:inline">15秒自动刷新</span><span className="hidden items-center gap-2 rounded-full border border-emerald-300/15 bg-emerald-300/[0.07] px-3 py-1.5 text-emerald-300 sm:flex"><span className={`h-1.5 w-1.5 rounded-full ${monitorOk || demo ? "bg-emerald-300 pulse" : "bg-amber-300"}`} />{demo ? "等待真实信号" : monitorOk ? "运行正常" : "等待调度"}</span><WalletButton/></div></div></header>
+    <header className="sticky top-0 z-30 border-b border-white/[0.07] bg-[#070a0f]/85 backdrop-blur-xl"><div className="mx-auto flex h-16 max-w-[1500px] items-center justify-between px-4 sm:px-7"><div className="flex items-center gap-3"><div className="grid h-9 w-9 place-items-center rounded-xl border border-cyan-300/20 bg-cyan-300/10 text-cyan-300"><RadioTower size={18} /></div><div><div className="font-semibold tracking-tight">KOL Signal</div><div className="text-[11px] tracking-[0.18em] text-slate-500">SMART FLOW MONITOR</div></div></div><div className="flex items-center gap-2 text-sm"><a href="/history" className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-slate-400 hover:text-slate-200"><History size={14}/><span className="hidden md:inline">历史</span></a><a href="/radar" className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-300/15 bg-cyan-300/[0.06] px-2.5 py-1.5 text-xs text-cyan-200 hover:bg-cyan-300/[0.1]"><Radar size={14}/><span className="hidden sm:inline">土狗雷达</span></a><span className="hidden text-slate-500 xl:inline">15秒自动刷新</span><span className={`hidden items-center gap-2 rounded-full border px-3 py-1.5 sm:flex ${continuityOk ? "border-emerald-300/15 bg-emerald-300/[0.07] text-emerald-300" : "border-amber-300/15 bg-amber-300/[0.07] text-amber-300"}`}><span className={`h-1.5 w-1.5 rounded-full ${continuityOk ? "bg-emerald-300 pulse" : "bg-amber-300"}`} />{continuityOk ? "运行正常" : continuity.github.sync === "diverged" ? "源码分叉" : continuity.github.schedule === "stopped" ? "调度停止" : "调度延迟"}</span><WalletButton/></div></div></header>
     <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-7 sm:py-8">
       {demo && <div className="mb-5 rounded-xl border border-amber-300/15 bg-amber-300/[0.06] px-4 py-3 text-sm text-amber-100">暂无生产信号数据；不会使用演示行情替代。</div>}
+      <ContinuityPanel status={continuity}/>
       <SystemStatus chains={chainHealth} sources={sourceHealth} alerts={alertSummary}/>
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Metric icon={<Users size={18} />} label="固定监控地址" value={walletCount.toLocaleString()} detail="另含 GMGN 实时 KOL" /><Metric icon={<BellRing size={18} />} label="预警代币" value={uniqueTokens.toString()} detail="去重后的聚集信号" /><Metric icon={<Sparkles size={18} />} label="高质量信号" value={highQuality.toString()} detail="达到 38 人及以上" accent /><Metric icon={<Clock3 size={18} />} label="最近同步" value={lastRun ? formatSignalAge(lastRun, clockNow) : "待运行"} detail="15秒刷新页面数据" /></section>
       {!demo && hotSignals.length > 0 && <section className="mt-6 rounded-2xl border border-orange-300/10 bg-gradient-to-r from-orange-300/[0.06] to-[#0b1018] p-4 sm:p-5"><div className="mb-4 flex items-center gap-2"><Flame size={17} className="text-orange-300"/><h2 className="font-semibold">热门信号</h2><span className="text-xs text-slate-600">按KOL聚集、预警级别与成交热度综合排序</span></div><div className="grid gap-3 lg:grid-cols-3">{hotSignals.map((signal) => <HotCard key={signal.id} signal={signal}/>)}</div></section>}
@@ -122,6 +137,28 @@ function SystemStatus({ chains, sources, alerts }: { chains: ChainHealth[]; sour
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2"><span className="text-slate-500">四链状态</span>{chains.map((item) => <span key={item.chain} className="inline-flex items-center gap-1.5"><span className={`h-2 w-2 rounded-full ${tone[item.state]}`}/>{chainLabel(item.chain)}</span>)}</div>
     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500"><details className="relative"><summary className="cursor-pointer list-none">数据源 {enabled.length} · 正常 {sourceHealthy} · 延迟 {sourceDelayed}{sourceBlocked ? ` · 阻断 ${sourceBlocked}` : ""}{sourceErrors ? ` · 错误 ${sourceErrors}` : ""}</summary><div className="absolute right-0 z-20 mt-2 max-h-72 w-[min(82vw,420px)] overflow-auto rounded-xl border border-white/10 bg-[#0b1018] p-3 shadow-2xl">{enabled.map((source) => <div key={`${source.source}:${source.chain}`} className="flex min-w-0 justify-between gap-3 border-b border-white/5 py-2"><span className="min-w-0 truncate">{source.source} · {source.chain}</span><span className="shrink-0">{source.state} · {source.lastSuccessAt ? formatSignalAge(source.lastSuccessAt) : "未成功"}</span></div>)}</div></details><details className="relative"><summary className={`cursor-pointer list-none ${deliveryAttention || alerts.manualReview ? "text-amber-300" : "text-slate-500"}`}>通知待处理 {deliveryAttention}{alerts.manualReview ? ` · 人工复核 ${alerts.manualReview}` : ""}</summary><div className="absolute right-0 z-20 mt-2 w-64 rounded-xl border border-white/10 bg-[#0b1018] p-3 shadow-2xl">pending {alerts.pending} · retry {alerts.retry} · manual_review {alerts.manualReview}<p className="mt-2 leading-5 text-slate-600">manual_review 不会自动重试，避免重复发送；雷达 threshold=0 使用 radar_visible 状态，不进入企业微信发送队列。</p></div></details></div>
   </section>;
+}
+
+function ContinuityPanel({ status }: { status: ContinuityStatus }) {
+  const shortSha = (value: string | null) => value ? value.slice(0, 7) : "未知";
+  const age = (value: string | null) => value ? formatSignalAge(value) : "无记录";
+  const scheduleText = status.github.schedule === "healthy" ? "正常" : status.github.schedule === "delayed" ? "延迟" : status.github.schedule === "stopped" ? "停止" : "未知";
+  const aveText = { not_started: "未启动", waiting_login: "等待登录", connected: "已连接", disconnected: "已断开", blocked: "阻断" }[status.ave.state];
+  const syncWarning = status.github.sync === "diverged";
+  return <section className={`mb-4 rounded-2xl border px-4 py-3 text-xs ${syncWarning ? "border-red-400/25 bg-red-400/[0.06]" : "border-white/[0.08] bg-[#0b1018]/90"}`}>
+    {syncWarning && <div className="mb-3 font-medium text-red-300">生产源码与 GitHub main 分叉，当前不可标记为运行正常。</div>}
+    <div className="grid min-w-0 gap-x-5 gap-y-3 sm:grid-cols-2 xl:grid-cols-4">
+      <StatusBlock label="GitHub Actions调度" value={`${scheduleText}${status.github.delayMinutes !== null ? ` · 延迟 ${status.github.delayMinutes} 分钟` : ""}`} detail={`Run #${status.github.lastRunNumber ?? "--"} · ${age(status.github.lastFinishedAt)}`} alert={status.github.schedule !== "healthy"}/>
+      <StatusBlock label="GitHub main / Sites" value={`${shortSha(status.github.mainSha)} / ${shortSha(status.github.sitesSha)}`} detail={status.github.sync === "aligned" ? "源码一致" : status.github.sync === "diverged" ? "源码分叉" : "尚未配置生产SHA"} alert={status.github.sync !== "aligned"}/>
+      <StatusBlock label="Ave Smart采集器" value={aveText} detail={`心跳 ${age(status.ave.lastHeartbeatAt)} · 事件 ${age(status.ave.lastEventAt)}`} alert={status.ave.state !== "connected"}/>
+      <StatusBlock label="外部服务 / D1" value={`GMGN天眼 阻断 · Grok ${status.grok.configured ? "已配置" : "不可用"}`} detail={`Grok成功 ${age(status.grok.lastSuccessAt)} · D1写入 ${age(status.d1LastWriteAt)}`} alert={!status.grok.configured}/>
+    </div>
+    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-slate-600"><span>Ave WebSocket：{status.ave.websocketStatus ?? "未知"}</span><span>捕获 {status.ave.capturedCount} · 上传 {status.ave.uploadedCount} · 去重 {status.ave.dedupCount}</span>{status.ave.error && <span className="max-w-full truncate text-amber-300">错误：{status.ave.error}</span>}</div>
+  </section>;
+}
+
+function StatusBlock({ label, value, detail, alert }: { label: string; value: string; detail: string; alert?: boolean }) {
+  return <div className="min-w-0"><div className="text-slate-500">{label}</div><div className={`mt-1 truncate font-medium ${alert ? "text-amber-300" : "text-emerald-300"}`}>{value}</div><div className="mt-1 truncate text-slate-600">{detail}</div></div>;
 }
 
 function Metric({ icon, label, value, detail, accent }: { icon: React.ReactNode; label: string; value: string; detail: string; accent?: boolean }) { return <div className={`rounded-2xl border p-4 ${accent ? "border-cyan-300/15 bg-gradient-to-br from-cyan-300/[0.09] to-[#0b1018]" : "border-white/[0.08] bg-[#0b1018]/90"}`}><div className="flex items-center justify-between"><span className="text-sm text-slate-500">{label}</span><span className={accent ? "text-cyan-300" : "text-slate-600"}>{icon}</span></div><div className="mt-3 text-2xl font-semibold tracking-tight">{value}</div><div className="mt-1 text-xs text-slate-600">{detail}</div></div>; }

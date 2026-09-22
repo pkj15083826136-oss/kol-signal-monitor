@@ -7,6 +7,7 @@ import { buildAlertSummary, buildChainHealth, buildSourceHealth, type AlertSumma
 import { tradingFeatureFlags } from "@/lib/feature-flags";
 import { DEFAULT_KOL_ALERT_MAX_MARKET_CAP, parseMarketCapLimit } from "@/lib/market-cap-policy";
 import { encodeSignalCursor } from "@/lib/signal-pagination";
+import { emptyContinuityStatus, loadContinuityStatus } from "@/lib/continuity";
 
 export const dynamic = "force-dynamic";
 
@@ -49,5 +50,6 @@ async function loadSignals(): Promise<{ signals: SignalRow[]; nextCursor: string
 export default async function Home() {
   const result = await loadSignals();
   const flags = tradingFeatureFlags(env as unknown as Record<string, string | undefined>);
-  return <Dashboard signals={result.signals} initialNextCursor={result.nextCursor} walletCount={watchedWallets.length} lastRun={result.lastRun} monitorOk={result.monitorOk} demo={!result.signals.length} liveMarketEnabled={flags.liveMarket} chainHealth={result.chainHealth} sourceHealth={result.sourceHealth} alertSummary={result.alertSummary} />;
+  const continuity = env.DB ? await loadContinuityStatus(env.DB, env as unknown as Record<string, unknown>).catch(() => emptyContinuityStatus()) : emptyContinuityStatus();
+  return <Dashboard signals={result.signals} initialNextCursor={result.nextCursor} walletCount={watchedWallets.length} lastRun={result.lastRun} monitorOk={result.monitorOk} demo={!result.signals.length} liveMarketEnabled={flags.liveMarket} chainHealth={result.chainHealth} sourceHealth={result.sourceHealth} alertSummary={result.alertSummary} initialContinuity={continuity} />;
 }
