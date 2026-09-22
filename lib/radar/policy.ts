@@ -7,6 +7,9 @@ export const RADAR_SCORE_VERSION = "radar-score-v1";
 
 function finite(value: number | null): value is number { return value !== null && Number.isFinite(value); }
 function cap(value: number, max: number) { return Math.max(0, Math.min(max, Math.round(value))); }
+function launchpadProfileFor(candidate: RadarCandidate) {
+  return candidate.launchpadId && candidate.launchpadProgram ? trustedLaunchpadProfile(candidate.chain, candidate.launchpadId, candidate.launchpadProgram) : null;
+}
 
 export function radarCandidateKey(chain: string, tokenAddress: string) {
   return `${chain}:${chain === "sol" ? tokenAddress : tokenAddress.toLowerCase()}`;
@@ -22,9 +25,7 @@ export function hardFilter(candidate: RadarCandidate, strategy: RadarStrategy = 
   if (candidate.pairAddress && tokenAddressEquals(candidate.chain, candidate.pairAddress, candidate.tokenAddress)) reasons.push("Pair 地址不得与 Token 地址相同");
   if (!finite(candidate.liquidity) || candidate.liquidity < strategy.minLiquidityUsd) reasons.push("流动性不足或未知");
   if (!finite(candidate.priceImpactBps) || candidate.priceImpactBps > strategy.maxPriceImpactBps) reasons.push("价格冲击过高或无法验证");
-  const launchpadProfile = candidate.launchpadId && candidate.launchpadProgram
-    ? trustedLaunchpadProfile(candidate.chain, candidate.launchpadId, candidate.launchpadProgram)
-    : null;
+  const launchpadProfile = launchpadProfileFor(candidate);
   if (launchpadProfile) {
     const fetched = Date.parse(candidate.dataFetchedAt);
     const launchpad = evaluateLaunchpadSafety({
@@ -49,25 +50,30 @@ export function hardFilter(candidate: RadarCandidate, strategy: RadarStrategy = 
     if (!finite(candidate.topHolderPct) || candidate.topHolderPct > strategy.maxTopHolderPct) reasons.push("Top 持仓过度集中或未知");
     if (candidate.developerRisk !== "clear") reasons.push("开发者历史风险未排除");
   }
-  if (!finite(candidate.buyers) || !finite(candidate.sellers) || candidate.buyers < strategy.minBuyers || candidate.buyers + candidate.sellers < strategy.minTransactions) reasons.push("真实交易数或买家数不足");
-  const created = candidate.poolCreatedAt ? Date.parse(candidate.poolCreatedAt) : NaN;
-  if (!Number.isFinite(created) || now - created < strategy.minPoolAgeMs) reasons.push("池子年龄不足或未知");
+  if (!launchpadProfile) {
+    if (!finite(candidate.buyers) || !finite(candidate.sellers) || candidate.buyers < strategy.minBuyers || candidate.buyers + candidate.sellers < strategy.minTransactions) reasons.push("真实交易数或买家数不足");
+    const created = candidate.poolCreatedAt ? Date.parse(candidate.poolCreatedAt) : NaN;
+    if (!Number.isFinite(created) || now - created < strategy.minPoolAgeMs) reasons.push("池子年龄不足或未知");
+  }
   const fetched = Date.parse(candidate.dataFetchedAt);
   if (!Number.isFinite(fetched) || now - fetched > strategy.maxDataAgeMs) reasons.push("数据过期");
-  if (candidate.sourceConflict) reasons.push("多数据源严重冲突");
+  if (!launchpadProfile && candidate.sourceConflict) reasons.push("多数据源严重冲突");
   const numericPrice = candidate.price === null ? null : Number(candidate.price);
-  if (!finite(candidate.marketCap) || !finite(numericPrice) || !finite(candidate.volume24h) || candidate.marketCap <= 0 || numericPrice <= 0) reasons.push("关键行情字段缺失");
+  if (!finite(numericPrice) || numericPrice <= 0 || (!launchpadProfile && (!finite(candidate.marketCap) || !finite(candidate.volume24h) || candidate.marketCap <= 0))) reasons.push("关键行情字段缺失");
   return { passed: reasons.length === 0, reasons: [...new Set(reasons)] };
 }
 
 export function scoreCandidate(candidate: RadarCandidate, ai?: RadarAiReview): RadarScore {
-  const security = cap(25 - (candidate.sourceConflict ? 8 : 0) - (candidate.topHolderPct && candidate.topHolderPct > 15 ? 5 : 0) - (candidate.developerRisk !== "clear" ? 7 : 0), 25);
+  const launchpadProfile = launchpadProfileFor(candidate);
+  const security = launchpadProfile
+    ? cap(25 - (candidate.sourceConflict || candidate.honeypot === true ? 10 : 0) - (candidate.sellSimulationPassed !== true ? 10 : 0), 25)
+    : cap(25 - (candidate.sourceConflict ? 8 : 0) - (candidate.topHolderPct && candidate.topHolderPct > 15 ? 5 : 0) - (candidate.developerRisk !== "clear" ? 7 : 0), 25);
   const liquidity = cap(finite(candidate.liquidity) ? Math.log10(Math.max(candidate.liquidity, 1)) * 3 : 0, 15);
   const smartMoney = cap(candidate.smartMoneyCount * 2.5, 15);
   const growth = cap(((candidate.buyers ?? 0) - (candidate.sellers ?? 0)) / 3 + (candidate.holders ?? 0) / 200, 10);
   const volumeFit = cap(finite(candidate.marketCap) && finite(candidate.volume24h) && candidate.marketCap > 0 ? (candidate.volume24h / candidate.marketCap) * 10 : 0, 10);
   const narrative = cap(((ai?.narrative_score ?? 0) / 100) * 20, 20);
-  const developer = candidate.developerRisk === "clear" ? 5 : 0;
+  const developer = launchpadProfile || candidate.developerRisk === "clear" ? 5 : 0;
   return { security, liquidity, smartMoney, growth, volumeFit, narrative, developer, total: security + liquidity + smartMoney + growth + volumeFit + narrative + developer, version: RADAR_SCORE_VERSION };
 }
 
