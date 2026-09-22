@@ -155,6 +155,8 @@ async function runBrowser() {
   });
   activeContext = context;
   const page = context.pages()[0] || await context.newPage();
+  const browserStartedAt = Date.now();
+  let reloadInFlight = false;
   stats.connectionStatus = "connected";
 
   page.on("websocket", (socket) => {
@@ -181,6 +183,7 @@ async function runBrowser() {
     try {
       const candidates = mapRows(await response.json());
       stats.loginStatus = "not_required";
+      if (stats.websocketStatus === "connecting") stats.websocketStatus = "not_observed";
       await post(candidates, "healthy");
     } catch (error) {
       await post([], "error", error instanceof Error ? error.message : "parse_failed").catch(() => {});
@@ -193,6 +196,13 @@ async function runBrowser() {
     void post([], stats.connectionStatus === "connected" ? "healthy" : "error").catch((error) => {
       console.error(`[${instanceId.slice(0, 8)}] 心跳上传失败：${error instanceof Error ? error.message : "unknown"}`);
     });
+    const lastStructuredEvent = stats.lastEventAt ? new Date(stats.lastEventAt).getTime() : browserStartedAt;
+    if (!reloadInFlight && Date.now() - lastStructuredEvent > 120_000) {
+      reloadInFlight = true;
+      void page.reload({ waitUntil: "domcontentloaded", timeout: 45_000 })
+        .catch((error) => console.error(`[${instanceId.slice(0, 8)}] 页面恢复失败：${error instanceof Error ? error.message : "unknown"}`))
+        .finally(() => { reloadInFlight = false; });
+    }
   }, 60_000);
   await new Promise((resolve) => context.once("close", resolve));
   activeContext = null;

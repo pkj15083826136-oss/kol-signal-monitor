@@ -28,6 +28,8 @@ describe("production continuity", () => {
     expect(collector).toContain("AVE_COLLECTOR_SECRET");
     expect(collector).not.toContain("MONITOR_SECRET");
     expect(collector).not.toMatch(/cookie|localStorage|sessionStorage/i);
+    expect(collector).toContain("Date.now() - lastStructuredEvent > 120_000");
+    expect(collector).toContain("page.reload");
     expect(launcher).toContain("ConvertTo-SecureString");
     expect(launcher).toContain("LOCALAPPDATA");
     expect(launcher).not.toContain("MONITOR_SECRET");
