@@ -22,9 +22,12 @@ export function buildSourceHealth(rows: Array<Record<string, unknown>>, now = Da
   return rows.map((row) => {
     const lastAttemptAt = row.last_attempt_at ? String(row.last_attempt_at) : null;
     const raw = String(row.status);
-    let state: HealthState = (["healthy", "rate_limited", "degraded", "unavailable"] as string[]).includes(raw) ? raw as HealthState : "degraded";
-    if (!lastAttemptAt) state = "unknown";
-    else if (now - Date.parse(lastAttemptAt) > SOURCE_STALE_AFTER_MS) state = "stale";
+    const known = ["healthy", "rate_limited", "degraded", "unavailable", "stale", "unknown", "off", "blocked", "unconfigured", "error"];
+    let state: HealthState = known.includes(raw) ? raw as HealthState : "error";
+    if (!["off", "blocked", "unconfigured"].includes(state)) {
+      if (!lastAttemptAt) state = "unknown";
+      else if (Number.isFinite(Date.parse(lastAttemptAt)) && now - Date.parse(lastAttemptAt) > SOURCE_STALE_AFTER_MS) state = "stale";
+    }
     return { source: String(row.source), chain: String(row.chain), state, lastAttemptAt, lastSuccessAt: row.last_success_at ? String(row.last_success_at) : null, consecutiveFailures: Number(row.consecutive_failures || 0), nextRetryAt: row.next_retry_at ? String(row.next_retry_at) : null, impact: String(row.impact || "none"), latencyMs: Number(row.last_latency_ms || 0) };
   });
 }

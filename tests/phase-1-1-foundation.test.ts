@@ -6,7 +6,7 @@ import { classifyOutcome, evidenceAvailableAtSignal, frozenNarrativeInput, trans
 import { AveSmartEventBuffer } from "@/lib/radar/adapters/ave-smart-browser";
 import { evaluateLaunchpadSafety, trustedLaunchpadProfile } from "@/lib/radar/launchpad";
 import { dueOutcomeHorizons } from "@/lib/radar/outcomes";
-import { sourceRegistryHealth } from "@/lib/ops-status";
+import { buildSourceHealth, sourceRegistryHealth } from "@/lib/ops-status";
 import { normalizeRadarCandidate } from "@/lib/radar/intake";
 import { hardFilter } from "@/lib/radar/policy";
 import { readFileSync } from "node:fs";
@@ -60,6 +60,14 @@ describe("phase 1.1 production contracts", () => {
   it("counts only enabled sources", () => {
     const health = sourceRegistryHealth([{ source: "okx", enabled: true, state: "healthy" }, { source: "reown", enabled: false, state: "off" }]);
     expect(health).toEqual({ healthy: 1, enabled: 1 });
+  });
+  it("preserves explicit blocked/off source states and only stales active sources", () => {
+    const rows = buildSourceHealth([
+      { source: "ave", chain: "all", status: "blocked", last_attempt_at: "2026-09-01T00:00:00Z" },
+      { source: "wallet", chain: "all", status: "off", last_attempt_at: null },
+      { source: "gmgn", chain: "sol", status: "healthy", last_attempt_at: "2026-09-01T00:00:00Z" },
+    ], Date.parse("2026-09-22T00:00:00Z"));
+    expect(rows.map((row) => row.state)).toEqual(["blocked", "off", "stale"]);
   });
   it("keeps wallet initialization code unloaded when the flag is off", () => {
     const root = readFileSync(new URL("../components/wallet/wallet-root.tsx", import.meta.url), "utf8");
