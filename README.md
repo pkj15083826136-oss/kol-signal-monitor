@@ -16,7 +16,7 @@
 - 代币头像、市值、流动性、持币地址、24H成交额
 - 5分钟/15分钟 K 线
 - KOL 持仓人数、代币数量和估算价值趋势
-- 列表每15秒刷新，新信号置顶并短暂高亮
+- 列表首屏20条、游标无限滚动；仅可见记录每15秒刷新，新信号置顶并短暂高亮
 - 四链运行状态、数据源健康度与通知待处理聚合状态
 - 全部显式时间使用北京时间
 
@@ -91,6 +91,7 @@ scripts/collect-gmgn.mjs     GitHub Actions侧采集器
 | `PUBLIC_SITE_URL` | 详情页公开地址 |
 | `REOWN_PROJECT_ID` | Reown AppKit 前端项目 ID；需要域名限制 |
 | `FEATURE_WALLET_CONNECT` | 只读钱包连接开关，默认 `false` |
+| `KOL_ALERT_MAX_MARKET_CAP` | KOL首次与升级预警的市值上限，默认 `20000000` |
 
 ## 本地开发与验证
 

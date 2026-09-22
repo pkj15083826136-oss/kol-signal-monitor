@@ -15,17 +15,17 @@ export function isMatureBaseAsset(symbol: string) {
 
 export type FirstSignalDecision = { status: "allow" | "suppressed" | "data_review"; reason: string };
 
-export function assessFirstSignal(input: { symbol: string; chain?: string; address?: string; marketCap: number | null; createdAt: number | null; identityVerified?: boolean; marketDataConflict?: boolean; now?: number }): FirstSignalDecision {
+export function assessFirstSignal(input: { symbol: string; chain?: string; address?: string; marketCap: number | null; createdAt: number | null; identityVerified?: boolean; marketDataConflict?: boolean; now?: number; maxMarketCap?: number }): FirstSignalDecision {
   const assetKey = `${input.chain || ""}:${input.chain === "sol" ? (input.address || "") : (input.address || "").toLowerCase()}`;
   if (isMatureBaseAsset(input.symbol) || CONFIRMED_MATURE_ASSETS.has(assetKey)) return { status: "suppressed", reason: "confirmed_mature_asset" };
   if (input.marketDataConflict) return { status: "data_review", reason: "market_data_conflict" };
   if (input.identityVerified === false) return { status: "data_review", reason: "token_identity_unverified" };
   if (input.marketCap === null || input.marketCap <= 0) return { status: "data_review", reason: "market_cap_unknown" };
+  if (input.marketCap >= (input.maxMarketCap ?? FIRST_SIGNAL_MAX_MARKET_CAP)) return { status: "suppressed", reason: "market_cap_limit" };
   if (input.createdAt === null || input.createdAt <= 0) return { status: "data_review", reason: "creation_time_unknown" };
-  if (input.marketCap > FIRST_SIGNAL_MAX_MARKET_CAP && (input.now ?? Date.now()) - input.createdAt > FIRST_SIGNAL_MAX_AGE_MS) return { status: "suppressed", reason: "mature_high_market_cap" };
   return { status: "allow", reason: "eligible" };
 }
 
-export function rejectFirstSignal(input: { symbol: string; chain?: string; address?: string; marketCap: number | null; createdAt: number | null; identityVerified?: boolean; marketDataConflict?: boolean; now?: number }) {
+export function rejectFirstSignal(input: { symbol: string; chain?: string; address?: string; marketCap: number | null; createdAt: number | null; identityVerified?: boolean; marketDataConflict?: boolean; now?: number; maxMarketCap?: number }) {
   return assessFirstSignal(input).status !== "allow";
 }

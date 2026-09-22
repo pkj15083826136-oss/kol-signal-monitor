@@ -35,6 +35,12 @@ export type RadarCandidate = {
   developerRisk: "known_bad" | "clear" | "unknown";
   priceImpactBps: number | null;
   sourceConflict: boolean;
+  launchpadId?: string | null;
+  launchpadProgram?: string | null;
+  launchpadFactoryVerified?: boolean;
+  launchpadPairVerified?: boolean;
+  launchpadBuyPath?: boolean;
+  launchpadSellPath?: boolean;
   rawSnapshot: Record<string, unknown>;
 };
 

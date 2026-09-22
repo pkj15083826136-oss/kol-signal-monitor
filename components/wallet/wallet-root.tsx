@@ -6,7 +6,7 @@ import type { WalletChain, WalletNamespace, WalletPhase } from "@/lib/wallet/sta
 export type WalletRuntimeConfig = { enabled: boolean; projectId: string | null };
 export type WalletAccount = { address: string | null; connected: boolean };
 export type WalletContextValue = {
-  ready: boolean; phase: WalletPhase; address: string | null; chain: WalletChain | null; namespace: WalletNamespace | null;
+  enabled: boolean; ready: boolean; phase: WalletPhase; address: string | null; chain: WalletChain | null; namespace: WalletNamespace | null;
   balance: string | null; balanceLoading: boolean; error: string | null; walletName: string | null; switchingTo: WalletChain | null;
   accounts: Record<WalletNamespace, WalletAccount>;
   connect: (target?: WalletChain) => Promise<void>; switchChain: (target: WalletChain) => Promise<void>;
@@ -14,7 +14,8 @@ export type WalletContextValue = {
 };
 
 const emptyAccounts: Record<WalletNamespace, WalletAccount> = { eip155: { address: null, connected: false }, solana: { address: null, connected: false } };
-export const fallbackWallet: WalletContextValue = { ready: false, phase: "idle", address: null, chain: null, namespace: null, balance: null, balanceLoading: false, error: null, walletName: null, switchingTo: null, accounts: emptyAccounts, connect: async () => {}, switchChain: async () => {}, disconnect: async () => {}, reconnect: async () => {}, openAccount: async () => {} };
+export const fallbackWallet: WalletContextValue = { enabled: true, ready: false, phase: "idle", address: null, chain: null, namespace: null, balance: null, balanceLoading: false, error: null, walletName: null, switchingTo: null, accounts: emptyAccounts, connect: async () => {}, switchChain: async () => {}, disconnect: async () => {}, reconnect: async () => {}, openAccount: async () => {} };
+export const disabledWallet: WalletContextValue = { ...fallbackWallet, enabled: false, ready: true };
 export const WalletContext = createContext<WalletContextValue>(fallbackWallet);
 export function useWalletRuntime() { return useContext(WalletContext); }
 
@@ -33,7 +34,7 @@ export default function WalletRoot({ config, children }: { config: WalletRuntime
     return () => { active = false; };
   }, [config.enabled, config.projectId]);
   const enabled = config.enabled && Boolean(config.projectId);
-  return <div data-wallet-enabled={enabled} data-wallet-ready={Boolean(Bridge)} data-wallet-init-error={failed}>
-    {Bridge ? <Bridge>{children}</Bridge> : <WalletContext.Provider value={{ ...fallbackWallet, error: failed ? "钱包组件初始化失败" : null }}>{children}</WalletContext.Provider>}
+  return <div data-wallet-enabled={enabled} data-wallet-ready={!enabled || Boolean(Bridge)} data-wallet-init-error={failed}>
+    {!enabled ? <WalletContext.Provider value={disabledWallet}>{children}</WalletContext.Provider> : Bridge ? <Bridge>{children}</Bridge> : <WalletContext.Provider value={{ ...fallbackWallet, error: failed ? "钱包组件初始化失败" : null }}>{children}</WalletContext.Provider>}
   </div>;
 }

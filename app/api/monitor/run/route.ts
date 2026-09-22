@@ -3,6 +3,8 @@ import { getKolTrades, getSmartMoneyTrades, getTokenInfo, asList, asRecord, firs
 import { analyzeNarrative, type NarrativeResult } from "@/lib/xai";
 import { sendWeComAlert } from "@/lib/wecom";
 import { watchedByAddress } from "@/lib/wallets";
+import { DEFAULT_KOL_ALERT_MAX_MARKET_CAP, parseMarketCapLimit, shouldSuppressByMarketCap } from "@/lib/market-cap-policy";
+import { processDueRadarOutcomes } from "@/lib/radar/outcomes";
 import { getMarketData } from "@/lib/market";
 import { assessFirstSignal } from "@/lib/signal-policy";
 import { isMonitorAuthorized, isMonitorPaused } from "@/lib/monitor-auth";
@@ -301,6 +303,8 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
       touched.set(`${row.chain}:${row.token_address}`, { chain: row.chain, token: row.token_address });
     }
 
+    const capSetting = await db.prepare("SELECT value FROM system_settings WHERE key='KOL_ALERT_MAX_MARKET_CAP'").first<{ value: string }>().catch(() => null);
+    const kolMarketCapLimit = parseMarketCapLimit(capSetting?.value ?? (env as unknown as Record<string, unknown>).KOL_ALERT_MAX_MARKET_CAP, DEFAULT_KOL_ALERT_MAX_MARKET_CAP);
     let aveChecked = false;
     for (const { chain, token } of touched.values()) {
       const aggregate = await db.prepare("SELECT COUNT(*) holder_count, COALESCE(SUM(buy_usd),0) total_buy_usd, COALESCE(SUM(balance),0) total_token_amount FROM token_wallets WHERE chain = ? AND token_address = ? AND balance > 0.000001")
@@ -308,8 +312,9 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
       const holderCount = Number(aggregate?.holder_count || 0);
       const alertedRows = await db.prepare("SELECT threshold FROM signals WHERE chain = ? AND token_address = ?").bind(chain, token).all<{ threshold: number }>();
       const due = dueAlertThreshold(holderCount, alertedRows.results.map((row) => Number(row.threshold)));
-      const previousSignal = await db.prepare("SELECT id, price FROM signals WHERE chain = ? AND token_address = ? ORDER BY alerted_at DESC LIMIT 1").bind(chain, token).first<{ id: number; price: string }>();
+      const previousSignal = await db.prepare("SELECT id, price, market_cap FROM signals WHERE chain = ? AND token_address = ? ORDER BY alerted_at DESC LIMIT 1").bind(chain, token).first<{ id: number; price: string; market_cap: number }>();
       if (!previousSignal && holderCount < ALERT_THRESHOLDS[0]) continue;
+      if (previousSignal && shouldSuppressByMarketCap(Number(previousSignal.market_cap), kolMarketCapLimit).suppress) continue;
       // Verify one token with Ave per monitor pass so source health is real,
       // while routine snapshots otherwise use public feeds to cap CU usage.
       const useAve = !previousSignal || !aveChecked;
@@ -321,10 +326,15 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
           if (status === "healthy" || previous !== "healthy") marketHealth.set(source, status);
         }
       }
+      if (shouldSuppressByMarketCap(liveMarket?.filterMarketCap, kolMarketCapLimit).suppress) {
+        if (liveMarket) await recordMarketReview(db, chain, token, liveMarket, "suppressed", "market_cap_limit");
+        await db.prepare("INSERT INTO api_usage_metrics (kind,source,request_count,cache_hits,filtered_saved,last_known_good_uses,captured_at) VALUES ('market_cap_filter','monitor',0,0,1,0,?)").bind(new Date().toISOString()).run().catch(() => undefined);
+        continue;
+      }
       if (!previousSignal) {
         const decision = liveMarket ? assessFirstSignal({
           symbol: liveMarket.symbol, chain, address: token, marketCap: liveMarket.filterMarketCap,
-          createdAt: liveMarket.createdAt || null, identityVerified: liveMarket.identityVerified, marketDataConflict: liveMarket.marketDataConflict,
+          createdAt: liveMarket.createdAt || null, identityVerified: liveMarket.identityVerified, marketDataConflict: liveMarket.marketDataConflict, maxMarketCap: kolMarketCapLimit,
         }) : { status: "data_review" as const, reason: "market_data_unavailable" };
         if (decision.status !== "allow") {
           if (decision.status === "data_review") dataReviewCount += 1;
@@ -413,13 +423,14 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
       await recordSourceHealth(db, `market_${source}`, selectedChain, status === "healthy", 0, status === "healthy" ? "" : status, status);
     }
     const alertDeliveryAfter = await deliverAlerts(db);
+    const radarOutcomesSaved = await processDueRadarOutcomes(db, (chain, address) => getMarketData(chain, address), new Date().toISOString(), 2).catch(() => 0);
     const finishedAt = new Date().toISOString();
     await write(db, "INSERT INTO monitor_runs (status, new_trades, new_signals, started_at, finished_at, chain, fetched_rows, matched_rows, feed_errors_json, data_review_count, market_conflict_count) VALUES ('success', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", "monitor_runs.success", {
       new_trades: d1Integer(newTrades), new_signals: d1Integer(newSignals), started_at: d1Text(startedAt), finished_at: d1Text(finishedAt),
       chain: d1Text(selectedChain), fetched_rows: d1Integer(fetchedRows), matched_rows: d1Integer(matchedRows), feed_errors_json: d1Json(feedErrors, []),
       data_review_count: d1Integer(dataReviewCount), market_conflict_count: d1Integer(marketConflictCount),
     }).run();
-    return { ok: true, selectedChain, fetchedRows, matchedRows, newTrades, newSignals, dataReviewCount, marketConflictCount, feedErrors, alertDeliveryBefore, alertDeliveryAfter, startedAt, finishedAt };
+    return { ok: true, selectedChain, fetchedRows, matchedRows, newTrades, newSignals, dataReviewCount, marketConflictCount, radarOutcomesSaved, feedErrors, alertDeliveryBefore, alertDeliveryAfter, startedAt, finishedAt };
   } catch (error) {
     const finishedAt = new Date().toISOString();
     const message = error instanceof Error ? error.message : "未知错误";

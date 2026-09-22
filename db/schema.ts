@@ -393,6 +393,7 @@ export const tradeOutcomes = sqliteTable("trade_outcomes", {
   zeroed: integer("zeroed").notNull().default(0),
   paperResultJson: text("paper_result_json").notNull().default("{}"),
   dataFreshnessMs: integer("data_freshness_ms"),
+  marketPrice: text("market_price"), marketCap: real("market_cap"), liquidity: real("liquidity"), holders: integer("holders"), quoteStatus: text("quote_status").notNull().default("NOT_QUOTED"), source: text("source"), sourceTimestamp: text("source_timestamp"), multipleKind: text("multiple_kind").notNull().default("UNVERIFIED_MARKET_MULTIPLE"),
 }, (table) => [uniqueIndex("uidx_trade_outcomes_signal_horizon").on(table.radarSignalId, table.horizon)]);
 
 export const userWalletAccounts = sqliteTable("user_wallet_accounts", {
@@ -428,3 +429,23 @@ export const walletAuthNonces = sqliteTable("wallet_auth_nonces", {
   consumedAt: text("consumed_at"),
   createdAt: text("created_at").notNull(),
 }, (table) => [index("idx_wallet_auth_nonces_expiry").on(table.expiresAt)]);
+
+export const systemSettings = sqliteTable("system_settings", {
+  key: text("key").primaryKey(), value: text("value").notNull(), updatedAt: text("updated_at").notNull(), updatedBy: text("updated_by"),
+});
+
+export const apiUsageMetrics = sqliteTable("api_usage_metrics", {
+  id: integer("id").primaryKey({ autoIncrement: true }), kind: text("kind").notNull(), source: text("source").notNull(), requestCount: integer("request_count").notNull().default(0), cacheHits: integer("cache_hits").notNull().default(0), filteredSaved: integer("filtered_saved").notNull().default(0), lastKnownGoodUses: integer("last_known_good_uses").notNull().default(0), capturedAt: text("captured_at").notNull(),
+}, (table) => [index("idx_api_usage_metrics_time").on(table.kind, table.capturedAt)]);
+
+export const narrativeSamples = sqliteTable("narrative_samples", {
+  id: integer("id").primaryKey({ autoIncrement: true }), radarSignalId: integer("radar_signal_id").notNull(), frozenInputJson: text("frozen_input_json").notNull().default("{}"), firstSignalAt: text("first_signal_at").notNull(), outcomeGroup: text("outcome_group").notNull().default("UNKNOWN"), multipleKind: text("multiple_kind").notNull().default("UNVERIFIED_MARKET_MULTIPLE"), createdAt: text("created_at").notNull(), updatedAt: text("updated_at").notNull(),
+}, (table) => [uniqueIndex("uidx_narrative_samples_signal").on(table.radarSignalId)]);
+
+export const promptRuleVersions = sqliteTable("prompt_rule_versions", {
+  id: integer("id").primaryKey({ autoIncrement: true }), version: text("version").notNull(), status: text("status").notNull().default("draft"), rulesJson: text("rules_json").notNull().default("[]"), evidenceJson: text("evidence_json").notNull().default("[]"), metricsJson: text("metrics_json").notNull().default("{}"), parentVersion: text("parent_version"), createdBy: text("created_by"), createdAt: text("created_at").notNull(), publishedAt: text("published_at"), rollbackReason: text("rollback_reason"),
+}, (table) => [uniqueIndex("uidx_prompt_rule_versions_version").on(table.version), index("idx_prompt_rule_versions_status").on(table.status)]);
+
+export const narrativeManualCases = sqliteTable("narrative_manual_cases", {
+  id: integer("id").primaryKey({ autoIncrement: true }), chain: text("chain").notNull(), tokenAddress: text("token_address").notNull(), narrative: text("narrative").notNull(), labelsJson: text("labels_json").notNull().default("[]"), verdict: text("verdict").notNull(), reason: text("reason").notNull(), createdBy: text("created_by").notNull(), createdAt: text("created_at").notNull(), updatedAt: text("updated_at").notNull(),
+}, (table) => [index("idx_narrative_manual_cases_token").on(table.chain, table.tokenAddress)]);

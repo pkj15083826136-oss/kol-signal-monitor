@@ -1,5 +1,7 @@
 # Phase 0.1—4 最终验收记录（Phase 0 生产门禁已关闭）
 
+> 2026-09-22 补充：土狗雷达 Phase 1.1 / Phase 2 基础的实施、外部来源取证、前向迁移和回滚说明见 `docs/RADAR_PHASE_1_1_ACCEPTANCE.md`。所有钱包、报价、测试网、主网和雷达自动交易 Feature Flag 继续保持关闭。
+
 ## 2026-09-20 K线历史、微小价格与钱包/测试网准入复核
 
 - 生产发布：原 Sites 项目 Version 48，提交 `e8e7c06529dc90fb0586dee2f027e8fcb8441a77`；Version 47 / `e6b70d6d102f7f3e1ca24add347bb6754961eb04` 完成K线数据模型与动态价格精度，Version 48修复顶部微小价格被截断。Site、D1及binding均未更换。

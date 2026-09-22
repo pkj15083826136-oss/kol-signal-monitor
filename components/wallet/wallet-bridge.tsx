@@ -165,6 +165,6 @@ export default function WalletBridge({ children }: { children: React.ReactNode }
   }, [disconnect, begin]);
 
   const openAccount = useCallback(async () => { await openRef.current({ view: "Account", namespace }); }, [namespace]);
-  const value: WalletContextValue = { ready: true, phase, address, chain, namespace, balance, balanceLoading, error, walletName: walletInfo?.name || null, switchingTo: operation?.kind === "switch" ? operation.target : null, accounts, connect, switchChain, disconnect, reconnect, openAccount };
+  const value: WalletContextValue = { enabled: true, ready: true, phase, address, chain, namespace, balance, balanceLoading, error, walletName: walletInfo?.name || null, switchingTo: operation?.kind === "switch" ? operation.target : null, accounts, connect, switchChain, disconnect, reconnect, openAccount };
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
 }

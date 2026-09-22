@@ -1,5 +1,6 @@
 import { DEFAULT_RADAR_STRATEGY, type HardFilterResult, type RadarAiReview, type RadarCandidate, type RadarDecision, type RadarScore, type RadarStrategy } from "@/lib/radar/types";
 import { tokenAddressEquals } from "@/lib/token-market";
+import { evaluateLaunchpadSafety, trustedLaunchpadProfile } from "@/lib/radar/launchpad";
 
 export const RADAR_RULE_VERSION = "radar-hard-filter-v1";
 export const RADAR_SCORE_VERSION = "radar-score-v1";
@@ -19,14 +20,35 @@ export function hardFilter(candidate: RadarCandidate, strategy: RadarStrategy = 
   const reasons: string[] = [];
   if (!candidate.identityVerified || !candidate.tokenAddress || !candidate.pairAddress) reasons.push("链、Token 或 Pair 身份无法完整验证");
   if (candidate.pairAddress && tokenAddressEquals(candidate.chain, candidate.pairAddress, candidate.tokenAddress)) reasons.push("Pair 地址不得与 Token 地址相同");
-  if (candidate.sellSimulationPassed !== true || candidate.honeypot === true) reasons.push("卖出模拟未通过或疑似貔貅");
   if (!finite(candidate.liquidity) || candidate.liquidity < strategy.minLiquidityUsd) reasons.push("流动性不足或未知");
   if (!finite(candidate.priceImpactBps) || candidate.priceImpactBps > strategy.maxPriceImpactBps) reasons.push("价格冲击过高或无法验证");
-  if (candidate.mintable !== false || candidate.freezable !== false || candidate.blacklistable !== false || candidate.taxModifiable !== false) reasons.push("合约权限未安全确认");
-  if (!finite(candidate.buyTaxBps) || !finite(candidate.sellTaxBps) || candidate.buyTaxBps > strategy.maxTaxBps || candidate.sellTaxBps > strategy.maxTaxBps) reasons.push("买卖税异常或未知");
-  if (candidate.lpLocked !== true) reasons.push("流动性锁定状态未确认");
-  if (!finite(candidate.topHolderPct) || candidate.topHolderPct > strategy.maxTopHolderPct) reasons.push("Top 持仓过度集中或未知");
-  if (candidate.developerRisk !== "clear") reasons.push("开发者历史风险未排除");
+  const launchpadProfile = candidate.launchpadId && candidate.launchpadProgram
+    ? trustedLaunchpadProfile(candidate.chain, candidate.launchpadId, candidate.launchpadProgram)
+    : null;
+  if (launchpadProfile) {
+    const fetched = Date.parse(candidate.dataFetchedAt);
+    const launchpad = evaluateLaunchpadSafety({
+      profile: launchpadProfile,
+      identityVerified: candidate.identityVerified,
+      factoryVerified: candidate.launchpadFactoryVerified === true,
+      pairVerified: candidate.launchpadPairVerified === true,
+      hasLiquidity: finite(candidate.liquidity) && candidate.liquidity > 0,
+      buyPath: candidate.launchpadBuyPath === true,
+      sellPath: candidate.launchpadSellPath === true && candidate.sellSimulationPassed === true,
+      priceImpactBps: candidate.priceImpactBps,
+      fresh: Number.isFinite(fetched) && now - fetched <= strategy.maxDataAgeMs,
+      maliciousEvidence: candidate.honeypot === true || candidate.sourceConflict ? ["存在貔貅或多数据源冲突证据"] : [],
+      maxImpactBps: strategy.maxPriceImpactBps,
+    });
+    reasons.push(...launchpad.hardFailures);
+  } else {
+    if (candidate.sellSimulationPassed !== true || candidate.honeypot === true) reasons.push("卖出模拟未通过或疑似貔貅");
+    if (candidate.mintable !== false || candidate.freezable !== false || candidate.blacklistable !== false || candidate.taxModifiable !== false) reasons.push("合约权限未安全确认");
+    if (!finite(candidate.buyTaxBps) || !finite(candidate.sellTaxBps) || candidate.buyTaxBps > strategy.maxTaxBps || candidate.sellTaxBps > strategy.maxTaxBps) reasons.push("买卖税异常或未知");
+    if (candidate.lpLocked !== true) reasons.push("流动性锁定状态未确认");
+    if (!finite(candidate.topHolderPct) || candidate.topHolderPct > strategy.maxTopHolderPct) reasons.push("Top 持仓过度集中或未知");
+    if (candidate.developerRisk !== "clear") reasons.push("开发者历史风险未排除");
+  }
   if (!finite(candidate.buyers) || !finite(candidate.sellers) || candidate.buyers < strategy.minBuyers || candidate.buyers + candidate.sellers < strategy.minTransactions) reasons.push("真实交易数或买家数不足");
   const created = candidate.poolCreatedAt ? Date.parse(candidate.poolCreatedAt) : NaN;
   if (!Number.isFinite(created) || now - created < strategy.minPoolAgeMs) reasons.push("池子年龄不足或未知");

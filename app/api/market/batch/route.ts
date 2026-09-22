@@ -53,5 +53,6 @@ export async function POST(request: Request) {
     return available;
   }));
   await recordMarketSamples(env.DB, items).catch(() => undefined);
+  if (env.DB) await env.DB.prepare("INSERT INTO api_usage_metrics (kind,source,request_count,cache_hits,filtered_saved,last_known_good_uses,captured_at) VALUES ('market_cycle','batch_market',?,?,?,?,?)").bind(tokens.length, items.filter((item) => item.source.startsWith("cached:")).length, 0, items.filter((item) => item.source.startsWith("cached:")).length, new Date().toISOString()).run().catch(() => undefined);
   return Response.json({ items, serverTime: new Date().toISOString() }, { headers: { "Cache-Control": "public, max-age=2, stale-while-revalidate=10" } });
 }

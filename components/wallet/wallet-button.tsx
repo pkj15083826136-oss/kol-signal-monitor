@@ -35,6 +35,10 @@ export default function WalletButton() {
     return () => window.removeEventListener("pointerdown", close);
   }, [expanded]);
 
+  if (!wallet.enabled) {
+    return <span className="wallet-trigger cursor-default" aria-label="钱包未启用"><WalletCards size={15}/><span className="hidden sm:inline">钱包未启用</span><span className="sm:hidden">未启用</span></span>;
+  }
+
   if (!wallet.ready) {
     return <button type="button" className="wallet-trigger" disabled aria-label="钱包组件初始化中">
       <LoaderCircle className="animate-spin" size={15}/><span className="hidden sm:inline">钱包初始化中</span><span className="sm:hidden">钱包</span>
