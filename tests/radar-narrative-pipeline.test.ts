@@ -47,11 +47,12 @@ describe("radar narrative pipeline", () => {
   });
   it("uses an idempotent recent-50 backfill query and preserves discovery time", () => {
     const source = readFileSync(new URL("../lib/radar/backfill.ts", import.meta.url), "utf8");
-    expect(source).toContain("NOT EXISTS"); expect(source).toContain("n.status IN ('COMPLETED','INSUFFICIENT_EVIDENCE','FAILED','NOT_CONFIGURED')"); expect(source).toContain("Math.min(50");
+    expect(source).toContain("NOT EXISTS"); expect(source).toContain("n.status IN ('COMPLETED','INSUFFICIENT_EVIDENCE','FAILED')"); expect(source).toContain("Math.min(50");
     expect(source).not.toContain("DELETE FROM radar_signals");
   });
   it("keeps narrative and trade results in separate persistence tables", () => {
     const source = readFileSync(new URL("../lib/radar/intake.ts", import.meta.url), "utf8");
     expect(source).toContain("radar_narrative_analysis"); expect(source).toContain("radar_trade_eligibility");
+    expect(source).toContain("n.status IN ('COMPLETED','INSUFFICIENT_EVIDENCE','FAILED')");
   });
 });

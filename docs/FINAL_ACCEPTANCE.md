@@ -2,6 +2,19 @@
 
 > 2026-09-22 补充：土狗雷达 Phase 1.1 / Phase 2 基础的实施、外部来源取证、前向迁移和回滚说明见 `docs/RADAR_PHASE_1_1_ACCEPTANCE.md`。所有钱包、报价、测试网、主网和雷达自动交易 Feature Flag 继续保持关闭。
 
+## 2026-09-22 雷达叙事完整性与 Pair 边界修复
+
+- 根因：`app/api/radar/collect/route.ts` 曾用硬安全门的 `passed` 结果决定是否调用 Grok，未通过时直接写入 `fallback_hold`；fallback 又把缺失叙事编码为 0 分，API 视图继续用 `Number(value || 0)` 把空值变成 0。Ave 适配器同时把 `amm` 字段直接映射为 `pairAddress`，因此 `cakev2`、`flapswap` 被误当成池地址。旧策略还把缺失数据描述成已确认的貔貅、高税、低流动性等失败，前端重复展示 AI 原因和拒绝原因。
+- 修复：叙事分析与交易条件独立持久化到 `radar_narrative_analysis` 和 `radar_trade_eligibility`。Grok不再被交易门短路；叙事状态采用明确枚举，只有 `COMPLETED` 显示数值。交易检查使用 `PASS/FAIL/UNKNOWN/NOT_APPLICABLE`，缺失数据不再写成已确认失败。卡片以 AI 叙事为主体，交易检查、风险评论、叙事证据和原始数据默认折叠。
+- 身份边界：只有通过链地址格式验证的值可进入 `pair_address`；DEX标签进入 `dex_id/source_pair_label`。受控历史修正不删除候选。HARVEST现为 `pair=null,dex=cakev2,PARTIAL_VERIFIED`，BNHD现为 `pair=null,dex=flapswap,PARTIAL_VERIFIED`。
+- Grok真实性：生产确认已配置且真实调用成功。HARVEST与BNHD均返回各自独立的 `INSUFFICIENT_EVIDENCE` 说明；两者因信号时点前缺少可核验证据而保持空评分，不伪造新闻、证据或分数。解析器会丢弃晚于首次信号时间的证据。
+- 回填：对当时最近32条真实候选完成一次受控回填，结果为 `COMPLETED=3`、`FAILED=8`、`INSUFFICIENT_EVIDENCE=21`、`NOT_CONFIGURED=0`。首个50条单请求触发一次Worker 1102时限后，改用单条顺序批次完成；终态任务不再被采集心跳重复收费。最终幂等复跑 `selected=0`。采集器在发布与回填期间保持连接，未中断正在进行的持续运行验收。
+- 迁移：`0015_blushing_bill_hollister.sql` 仅新增两张表和雷达身份/叙事字段，无 `DROP`、`DELETE` 或历史覆盖。D1、Site、binding、公开访问范围均未更换。
+- 回归：`pnpm lint` 0错误/0警告；TypeScript通过；Vitest 32文件/171项通过；build通过；生产Playwright覆盖桌面、375×812与390×844，雷达页无横向溢出。`pnpm audit --prod`维持钱包依赖链1 high + 3 moderate，本轮钱包代码仍由关闭的Feature Flag隔离。
+- 截图：`docs/screenshots/production-v73-radar-desktop-1440x1000.png`、`docs/screenshots/production-v73-radar-mobile-390x844.png`。两张均来自真实生产数据，不是fixture。
+- 开关：`FEATURE_WALLET_CONNECT`、`FEATURE_RADAR_WALLET_LOGIN`、`FEATURE_RADAR_AUTOTRADE`、报价、测试网、主网和四个逐链主网开关全部为 `false`。未请求钱包签名、未报价、未授权、未广播交易。
+- 回滚：Sites可切回Version 71；Git可将本轮提交整体revert。迁移为向前兼容的加法迁移，回滚应用时保留新增表和历史分析记录，不执行破坏性逆迁移。
+
 ## 2026-09-20 K线历史、微小价格与钱包/测试网准入复核
 
 - 生产发布：原 Sites 项目 Version 48，提交 `e8e7c06529dc90fb0586dee2f027e8fcb8441a77`；Version 47 / `e6b70d6d102f7f3e1ca24add347bb6754961eb04` 完成K线数据模型与动态价格精度，Version 48修复顶部微小价格被截断。Site、D1及binding均未更换。

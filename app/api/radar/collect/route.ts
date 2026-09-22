@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { isMonitorAuthorized } from "@/lib/monitor-auth";
 import { reviewRadarCandidate } from "@/lib/radar/reviewer";
-import { loadCompletedRadarNarrative, normalizeRadarCandidate, persistRadarCandidate } from "@/lib/radar/intake";
+import { loadTerminalRadarNarrative, normalizeRadarCandidate, persistRadarCandidate } from "@/lib/radar/intake";
 
 export const dynamic = "force-dynamic";
 function text(value: unknown, fallback = "", max = 300) { return String(value ?? fallback).slice(0, max); }
@@ -25,7 +25,7 @@ export async function POST(request: Request) {
   if (!candidates.length) return Response.json({ ok: true, heartbeat: true, count: 0 });
   const results = [];
   for (const candidate of candidates) {
-    const stored = await loadCompletedRadarNarrative(env.DB, candidate);
+    const stored = await loadTerminalRadarNarrative(env.DB, candidate);
     const review = stored ?? await reviewRadarCandidate(candidate, typeof source.XAI_API_KEY === "string" ? source.XAI_API_KEY : undefined);
     results.push(await persistRadarCandidate(env.DB, candidate, review));
   }
