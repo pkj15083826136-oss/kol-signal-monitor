@@ -1,6 +1,26 @@
 export const RADAR_DECISIONS = ["APPROVE", "HOLD", "REJECT", "EMERGENCY_CLOSE"] as const;
 export type RadarDecision = typeof RADAR_DECISIONS[number];
 export type RadarChain = "sol" | "bsc" | "base" | "robinhood";
+export const NARRATIVE_STATUSES = ["PENDING", "RUNNING", "COMPLETED", "RETRYING", "FAILED", "INSUFFICIENT_EVIDENCE", "NOT_CONFIGURED"] as const;
+export type NarrativeStatus = typeof NARRATIVE_STATUSES[number];
+export type CheckState = "PASS" | "FAIL" | "UNKNOWN" | "NOT_APPLICABLE";
+export type TradeEligibilityStatus = "PASS" | "FAIL" | "UNKNOWN";
+export type NarrativeEvidence = {
+  url: string | null;
+  title: string;
+  published_at: string | null;
+  relation: "support" | "oppose" | "context";
+  reason: string;
+  available_at_signal: boolean;
+};
+export type TradeCheck = { key: string; label: string; state: CheckState; reason: string };
+export type TradeEligibility = {
+  status: TradeEligibilityStatus;
+  identityStatus: "VERIFIED" | "PARTIAL_VERIFIED" | "UNVERIFIED" | "FAILED";
+  shortReason: string;
+  checks: TradeCheck[];
+  riskComments: string[];
+};
 
 export type RadarCandidate = {
   source: string;
@@ -8,6 +28,11 @@ export type RadarCandidate = {
   chain: RadarChain;
   tokenAddress: string;
   pairAddress: string | null;
+  dexId?: string | null;
+  routerId?: string | null;
+  launchpadId?: string | null;
+  factoryAddress?: string | null;
+  sourcePairLabel?: string | null;
   name: string;
   symbol: string;
   firstSeenAt: string;
@@ -35,7 +60,6 @@ export type RadarCandidate = {
   developerRisk: "known_bad" | "clear" | "unknown";
   priceImpactBps: number | null;
   sourceConflict: boolean;
-  launchpadId?: string | null;
   launchpadProgram?: string | null;
   launchpadFactoryVerified?: boolean;
   launchpadPairVerified?: boolean;
@@ -45,20 +69,34 @@ export type RadarCandidate = {
 };
 
 export type RadarAiReview = {
+  status: NarrativeStatus;
   decision: RadarDecision;
   confidence: number;
-  narrative_score: number;
-  risk_score: number;
+  narrative_score: number | null;
+  risk_score: number | null;
   stage: string;
+  summary: string;
+  freshness_score: number | null;
+  sentiment_score: number | null;
+  lead_score: number | null;
   positive_reasons: string[];
   negative_reasons: string[];
   invalidators: string[];
   recommended_action: string;
   model_version: string;
   evidence_refs: string[];
+  evidence: NarrativeEvidence[];
+  prompt_version: string;
+  input_cutoff_at: string;
+  analysis_at: string | null;
+  attempt_count: number;
+  error_code: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cost_microusd: number | null;
 };
 
-export type HardFilterResult = { passed: boolean; reasons: string[] };
+export type HardFilterResult = { passed: boolean; status: TradeEligibilityStatus; reasons: string[]; checks: TradeCheck[]; riskComments: string[]; identityStatus: TradeEligibility["identityStatus"] };
 export type RadarScore = {
   security: number;
   liquidity: number;

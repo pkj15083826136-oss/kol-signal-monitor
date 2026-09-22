@@ -43,7 +43,7 @@ describe("phase 1.1 production contracts", () => {
   });
   it("uses the trusted launchpad gate in the actual radar policy", () => {
     const candidate = normalizeRadarCandidate({
-      source: "ave_smart_browser", sourceEventId: "pump-1", chain: "sol", tokenAddress: "Token111", pairAddress: "Pair111", name: "Pump token", symbol: "PUMP",
+      source: "ave_smart_browser", sourceEventId: "pump-1", chain: "sol", tokenAddress: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263", pairAddress: "11111111111111111111111111111111", name: "Pump token", symbol: "PUMP",
       firstSeenAt: "2026-09-22T00:00:00Z", poolCreatedAt: null, price: "0.001", marketCap: null, liquidity: 50_000, volume24h: null,
       holders: null, buyers: null, sellers: null, smartMoneyCount: 2, dataFetchedAt: "2026-09-22T00:00:00Z", identityVerified: true, sellSimulationPassed: true,
       honeypot: false, mintable: null, freezable: null, blacklistable: null, taxModifiable: null, buyTaxBps: null, sellTaxBps: null, lpLocked: null, topHolderPct: null,

@@ -1,9 +1,7 @@
 import { env } from "cloudflare:workers";
 import { isMonitorAuthorized } from "@/lib/monitor-auth";
-import { hardFilter } from "@/lib/radar/policy";
-import { radarAiFallback } from "@/lib/radar/ai";
 import { reviewRadarCandidate } from "@/lib/radar/reviewer";
-import { normalizeRadarCandidate, persistRadarCandidate } from "@/lib/radar/intake";
+import { loadCompletedRadarNarrative, normalizeRadarCandidate, persistRadarCandidate } from "@/lib/radar/intake";
 
 export const dynamic = "force-dynamic";
 function text(value: unknown, fallback = "", max = 300) { return String(value ?? fallback).slice(0, max); }
@@ -27,8 +25,8 @@ export async function POST(request: Request) {
   if (!candidates.length) return Response.json({ ok: true, heartbeat: true, count: 0 });
   const results = [];
   for (const candidate of candidates) {
-    const gate = hardFilter(candidate);
-    const review = gate.passed ? await reviewRadarCandidate(candidate, typeof source.XAI_API_KEY === "string" ? source.XAI_API_KEY : undefined) : radarAiFallback();
+    const stored = await loadCompletedRadarNarrative(env.DB, candidate);
+    const review = stored ?? await reviewRadarCandidate(candidate, typeof source.XAI_API_KEY === "string" ? source.XAI_API_KEY : undefined);
     results.push(await persistRadarCandidate(env.DB, candidate, review));
   }
   return Response.json({ ok: true, count: results.length, results });

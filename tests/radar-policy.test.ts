@@ -7,7 +7,14 @@ const now = Date.parse("2026-09-21T10:00:00.000Z");
 function safeCandidate(patch: Partial<RadarCandidate> = {}): RadarCandidate {
   return { source: "fixture", sourceEventId: "evt-1", chain: "bsc", tokenAddress: "0x1111111111111111111111111111111111111111", pairAddress: "0x2222222222222222222222222222222222222222", name: "Radar", symbol: "RDR", firstSeenAt: "2026-09-21T09:55:00.000Z", poolCreatedAt: "2026-09-21T09:00:00.000Z", price: "0.0021", marketCap: 1_000_000, liquidity: 100_000, volume24h: 500_000, holders: 450, buyers: 80, sellers: 30, smartMoneyCount: 12, dataFetchedAt: "2026-09-21T09:59:30.000Z", identityVerified: true, sellSimulationPassed: true, honeypot: false, mintable: false, freezable: false, blacklistable: false, taxModifiable: false, buyTaxBps: 100, sellTaxBps: 100, lpLocked: true, topHolderPct: 12, developerRisk: "clear", priceImpactBps: 250, sourceConflict: false, rawSnapshot: {}, ...patch };
 }
-const approve: RadarAiReview = { decision: "APPROVE", confidence: 0.95, narrative_score: 90, risk_score: 10, stage: "early", positive_reasons: ["verified"], negative_reasons: [], invalidators: [], recommended_action: "paper", model_version: "test", evidence_refs: ["fixture"] };
+const approve: RadarAiReview = {
+  status: "COMPLETED", decision: "APPROVE", confidence: 0.95, narrative_score: 90, risk_score: 10,
+  stage: "early", summary: "verified", freshness_score: 90, sentiment_score: 80, lead_score: 75,
+  positive_reasons: ["verified"], negative_reasons: [], invalidators: [], recommended_action: "paper",
+  model_version: "test", evidence_refs: ["fixture"], evidence: [{ url: "https://example.com/evidence", title: "fixture", published_at: "2026-09-21T09:50:00.000Z", relation: "support", reason: "fixture", available_at_signal: true }],
+  prompt_version: "test", input_cutoff_at: "2026-09-21T09:55:00.000Z", analysis_at: "2026-09-21T10:00:00.000Z",
+  attempt_count: 1, error_code: null, input_tokens: 1, output_tokens: 1, cost_microusd: 1,
+};
 
 describe("radar deterministic gate", () => {
   it("deduplicates token identity per chain while preserving source-event identity", () => {
@@ -17,7 +24,7 @@ describe("radar deterministic gate", () => {
   });
   it("rejects pair/token confusion, stale data and unknown safety fields", () => {
     expect(hardFilter(safeCandidate({ pairAddress: "0x1111111111111111111111111111111111111111" }), undefined, now).passed).toBe(false);
-    expect(hardFilter(safeCandidate({ dataFetchedAt: "2026-09-21T09:00:00.000Z" }), undefined, now).reasons).toContain("数据过期");
+    expect(hardFilter(safeCandidate({ dataFetchedAt: "2026-09-21T09:00:00.000Z" }), undefined, now).reasons).toContain("行情数据已过期，等待刷新");
     expect(hardFilter(safeCandidate({ sellSimulationPassed: null }), undefined, now).passed).toBe(false);
   });
   it("never lets an AI approval bypass a failed hard filter", () => {
@@ -28,7 +35,7 @@ describe("radar deterministic gate", () => {
   it("defaults malformed or unavailable AI output to HOLD", () => {
     expect(radarAiFallback().decision).toBe("HOLD");
     expect(parseRadarAiReview("not-json").decision).toBe("HOLD");
-    expect(parseRadarAiReview({ ...approve, confidence: 2 }).confidence).toBe(1);
+    expect(parseRadarAiReview({ ...approve, confidence: 2 }, { inputCutoffAt: approve.input_cutoff_at }).confidence).toBe(1);
     expect(decideRadar(safeCandidate(), radarAiFallback(), undefined, now).decision).toBe("HOLD");
   });
 });
