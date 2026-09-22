@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { classifySchedule, scheduledSlotFor } from "@/lib/continuity";
+import { classifySchedule, fallbackScheduleFromHeartbeat, scheduledSlotFor } from "@/lib/continuity";
 
 describe("production continuity", () => {
   it("derives the expected hourly :07 slot and exposes schedule delay", () => {
@@ -13,6 +13,11 @@ describe("production continuity", () => {
   it("marks a missing natural run as stopped instead of normal", () => {
     const status = classifySchedule({ run_number: 38, status: "completed", conclusion: "success", created_at: "2026-09-22T04:40:41.000Z", updated_at: "2026-09-22T05:23:08.000Z" }, new Date("2026-09-22T08:30:00.000Z"));
     expect(status.schedule).toBe("stopped");
+  });
+
+  it("fails closed when GitHub API is unavailable and the production heartbeat is stale", () => {
+    expect(fallbackScheduleFromHeartbeat("2026-09-22T04:00:00.000Z", new Date("2026-09-22T08:00:01.000Z")).schedule).toBe("stopped");
+    expect(fallbackScheduleFromHeartbeat("2026-09-22T07:30:00.000Z", new Date("2026-09-22T08:00:00.000Z")).schedule).toBe("unknown");
   });
 
   it("keeps Ave credentials local and uses a dedicated collector secret", async () => {

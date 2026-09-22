@@ -73,6 +73,13 @@ export function classifySchedule(run: WorkflowRun | null, now = new Date()): Pic
   };
 }
 
+export function fallbackScheduleFromHeartbeat(lastWriteAt: string | null, now = new Date()): ReturnType<typeof classifySchedule> {
+  const parsed = lastWriteAt ? new Date(lastWriteAt) : null;
+  const valid = parsed && Number.isFinite(parsed.getTime()) ? parsed : null;
+  const stopped = valid ? now.getTime() - valid.getTime() > 150 * 60_000 : false;
+  return { schedule: stopped ? "stopped" : "unknown", lastRunNumber: null, lastRunStatus: null, lastScheduledAt: null, lastStartedAt: null, lastFinishedAt: valid?.toISOString() ?? null, delayMinutes: null };
+}
+
 function aveState(row: Record<string, unknown> | null): ContinuityStatus["ave"]["state"] {
   if (!row) return "not_started";
   if (row.login_status === "required") return "waiting_login";
@@ -90,11 +97,11 @@ export async function loadContinuityStatus(db: D1Database, source: Record<string
     db.prepare("SELECT finished_at FROM monitor_runs ORDER BY id DESC LIMIT 1").first<{ finished_at?: string }>().catch(() => null),
     db.prepare("SELECT created_at FROM radar_analysis ORDER BY id DESC LIMIT 1").first<{ created_at?: string }>().catch(() => null),
   ]);
-  const mainSha = branchResult?.commit?.sha ?? null;
+  const mainSha = branchResult?.commit?.sha ?? (typeof source.GITHUB_MAIN_SHA === "string" ? source.GITHUB_MAIN_SHA : null);
   const sitesSha = typeof source.SITE_SOURCE_COMMIT_SHA === "string" ? source.SITE_SOURCE_COMMIT_SHA : null;
   const sync: SourceSyncState = !mainSha || !sitesSha ? "unknown" : mainSha === sitesSha ? "aligned" : "diverged";
   const workflowState = workflowDefinition?.state ?? "unknown";
-  const schedule = classifySchedule(workflowResult?.workflow_runs?.[0] ?? null, now);
+  const schedule = workflowResult?.workflow_runs?.[0] ? classifySchedule(workflowResult.workflow_runs[0], now) : fallbackScheduleFromHeartbeat(d1?.finished_at ?? null, now);
   return {
     checkedAt: now.toISOString(),
     github: { mainSha, sitesSha, sync, workflowState, ...schedule },
