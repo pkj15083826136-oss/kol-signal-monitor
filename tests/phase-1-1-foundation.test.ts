@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parseMarketCapLimit, shouldSuppressByMarketCap, trustedMarketCap } from "@/lib/market-cap-policy";
 import { decodeSignalCursor, encodeSignalCursor, signalPageLimit } from "@/lib/signal-pagination";
 import { GmgnTianyanAdapter, isTianyanSource } from "@/lib/radar/adapters/gmgn-tianyan";
-import { classifyOutcome, evidenceAvailableAtSignal, frozenNarrativeInput, transitionPromptVersion } from "@/lib/radar/learning";
+import { classifyOutcome, collectorDisplayState, evidenceAvailableAtSignal, frozenNarrativeInput, transitionPromptVersion } from "@/lib/radar/learning";
 import { AveSmartEventBuffer } from "@/lib/radar/adapters/ave-smart-browser";
 import { evaluateLaunchpadSafety, trustedLaunchpadProfile } from "@/lib/radar/launchpad";
 import { dueOutcomeHorizons } from "@/lib/radar/outcomes";
@@ -84,6 +84,21 @@ describe("phase 1.1 production contracts", () => {
   it("rejects invalid cursor data", () => expect(decodeSignalCursor("broken")).toBeNull());
   it("retains last-known-good on implausible market-cap jumps", () => { expect(trustedMarketCap(150_000, 100_000)).toBe(150_000); expect(trustedMarketCap(9_000_000, 100_000)).toBe(100_000); expect(trustedMarketCap(null, 100_000)).toBe(100_000); });
   it("freezes narrative events without future leakage", () => expect(frozenNarrativeInput("2026-09-22T00:00:00Z", [{ capturedAt: "2026-09-21T23:00:00Z", id: 1 }, { capturedAt: "2026-09-22T01:00:00Z", id: 2 }]).map((row) => row.id)).toEqual([1]));
+  it("does not claim the Ave collector is ready without a recent real heartbeat", () => {
+    const now = Date.parse("2026-09-22T00:10:00Z");
+    expect(collectorDisplayState(null, now)).toBe("BLOCKED_EXTERNAL_ENDPOINT");
+    expect(collectorDisplayState({ connection_status: "connected", login_status: "not_required", last_heartbeat_at: "2026-09-22T00:09:00Z" }, now)).toBe("CONNECTED");
+    expect(collectorDisplayState({ connection_status: "connected", login_status: "not_required", last_heartbeat_at: "2026-09-21T23:00:00Z" }, now)).toBe("BLOCKED_EXTERNAL_ENDPOINT");
+    expect(collectorDisplayState({ connection_status: "connected", login_status: "required", last_heartbeat_at: "2026-09-22T00:09:00Z" }, now)).toBe("LOGIN_EXPIRED");
+  });
+  it("creates an immutable narrative sample on first radar intake", () => {
+    const intake = readFileSync(new URL("../lib/radar/intake.ts", import.meta.url), "utf8");
+    const outcomes = readFileSync(new URL("../lib/radar/outcomes.ts", import.meta.url), "utf8");
+    expect(intake).toContain("INSERT INTO narrative_samples");
+    expect(intake).toContain("ON CONFLICT(radar_signal_id) DO NOTHING");
+    expect(outcomes).toContain("ORDER BY observed_at ASC,id ASC LIMIT 1");
+    expect(outcomes).toContain("ON CONFLICT(radar_signal_id) DO NOTHING");
+  });
   it("rejects invalid prompt transitions", () => expect(() => transitionPromptVersion("draft", "publish")).toThrow("INVALID_PROMPT_VERSION_TRANSITION"));
   it("requires a launchpad sell path", () => { const profile = trustedLaunchpadProfile("sol", "pump_fun", "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"); expect(evaluateLaunchpadSafety({ profile, identityVerified: true, factoryVerified: true, pairVerified: true, hasLiquidity: true, buyPath: true, sellPath: false, priceImpactBps: 100, fresh: true, maliciousEvidence: [] }).hardFailures).toContain("卖出路径不可执行"); });
   it("rejects an untrusted launchpad factory", () => expect(trustedLaunchpadProfile("sol", "pump_fun", "fake")).toBeNull());
