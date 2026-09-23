@@ -5,7 +5,7 @@ import { GmgnTianyanAdapter, isTianyanSource } from "@/lib/radar/adapters/gmgn-t
 import { classifyOutcome, collectorDisplayState, evidenceAvailableAtSignal, frozenNarrativeInput, transitionPromptVersion } from "@/lib/radar/learning";
 import { AveSmartEventBuffer } from "@/lib/radar/adapters/ave-smart-browser";
 import { evaluateLaunchpadSafety, trustedLaunchpadProfile } from "@/lib/radar/launchpad";
-import { dueOutcomeHorizons } from "@/lib/radar/outcomes";
+import { dueOutcomeHorizons, outcomeHorizonsForTier, trackingTier } from "@/lib/radar/outcomes";
 import { buildSourceHealth, sourceRegistryHealth } from "@/lib/ops-status";
 import { normalizeRadarCandidate } from "@/lib/radar/intake";
 import { hardFilter } from "@/lib/radar/policy";
@@ -104,6 +104,14 @@ describe("phase 1.1 production contracts", () => {
   it("rejects an untrusted launchpad factory", () => expect(trustedLaunchpadProfile("sol", "pump_fun", "fake")).toBeNull());
   it("preserves deterministic malicious launchpad evidence", () => { const profile = trustedLaunchpadProfile("sol", "pump_fun", "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"); expect(evaluateLaunchpadSafety({ profile, identityVerified: true, factoryVerified: true, pairVerified: true, hasLiquidity: true, buyPath: true, sellPath: true, priceImpactBps: 100, fresh: true, maliciousEvidence: ["已确认开发者撤池"] }).hardFailures).toContain("已确认开发者撤池"); });
   it("does not schedule future result horizons", () => expect(dueOutcomeHorizons("2026-09-22T00:00:00Z", "2026-09-22T00:10:00Z", [])).toEqual(["5m"]));
+  it("reduces outcome polling by AI-selected, rejected, and invalid tiers", () => {
+    expect([...outcomeHorizonsForTier("ai_selected")]).toEqual(["5m", "30m", "1h", "4h", "24h", "7d"]);
+    expect([...outcomeHorizonsForTier("ordinary_rejected")]).toEqual(["1h", "24h", "7d"]);
+    expect([...outcomeHorizonsForTier("invalid_asset")]).toEqual(["24h", "7d"]);
+    expect(trackingTier({ status: "approved", ai_decision: "APPROVE", hard_filter_passed: 1, identity_status: "VERIFIED" })).toBe("ai_selected");
+    expect(trackingTier({ status: "rejected", ai_decision: "REJECT", hard_filter_passed: 1, identity_status: "VERIFIED" })).toBe("ordinary_rejected");
+    expect(trackingTier({ status: "rejected", ai_decision: "REJECT", hard_filter_passed: 0, identity_status: "INVALID" })).toBe("invalid_asset");
+  });
   it("parses Ave browser fields without claiming identity verification", () => { const buffer = new AveSmartEventBuffer(); const [candidate] = buffer.ingest([{ id: "a", token: "So11111111111111111111111111111111111111112", chain: "solana", symbol: "T", current_price_usd: "0.2", mc_cur: "200000", holders_cur: "42" }]); expect(candidate).toMatchObject({ source: "ave_smart_browser", marketCap: 200000, holders: 42, identityVerified: false }); });
   it("does not persist collector secrets in source", () => { const collector = readFileSync(new URL("../scripts/ave-smart-collector.mjs", import.meta.url), "utf8"); expect(collector).not.toMatch(/(?:api[_-]?key|secret)\s*=\s*["'][A-Za-z0-9_-]{16,}["']/i); expect(collector).toContain("process.env.AVE_COLLECTOR_SECRET"); expect(collector).not.toContain("process.env.MONITOR_SECRET"); });
   it("uses cursor SQL rather than loading all rows", () => { const route = readFileSync(new URL("../app/api/signals/route.ts", import.meta.url), "utf8"); expect(route).toContain("LIMIT ?"); expect(route).toContain("alerted_at < ?"); expect(route).not.toContain("LIMIT 80"); });

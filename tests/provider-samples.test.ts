@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PROVIDER_SAMPLE_UPSERT, recordKlineSample } from "@/lib/provider-samples";
+import { PROVIDER_SAMPLE_UPSERT, recordKlineSample, recordMarketSamples } from "@/lib/provider-samples";
 
 describe("provider telemetry", () => {
   it("aggregates repeated observations in the same bucket instead of dropping retries", async () => {
@@ -22,5 +22,12 @@ describe("provider telemetry", () => {
     expect(sql).toContain("ON CONFLICT(source, chain, token_address, data_kind, interval, bucket) DO UPDATE");
     expect(bindings).toContain("rate_limited");
     expect(bindings).toContain(2);
+  });
+  it("does not copy one upstream batch request onto every token", async () => {
+    const statements: unknown[][] = [];
+    const db = { prepare: () => ({ bind: (...values: unknown[]) => { statements.push(values); return {}; } }), batch: async () => [] } as unknown as D1Database;
+    const base = { chain: "base", address: "0xaaaaaaaaaa", tokenAddress: "0xaaaaaaaaaa", pairAddress: "", symbol: "A", decimals: null, price: 1, priceChange24h: null, marketCap: 1, liquidity: 1, holders: 1, volume24h: 1, updatedAt: "2026-09-23T00:00:00Z", sourceTimestamp: "2026-09-23T00:00:00Z", receivedAt: "2026-09-23T00:00:00Z", source: "OKX Onchain", identityVerified: true, fieldSources: {}, fieldUpdatedAt: {}, staleFields: [], conflictFields: [], providerMeta: { requestCount: 1, latencyMs: 1, cacheHit: false, rateLimited: false, status: "healthy" as const } };
+    await recordMarketSamples(db, [base, { ...base, address: "0xbbbbbbbbbb", tokenAddress: "0xbbbbbbbbbb" }]);
+    expect(statements.map((values) => values[4])).toEqual([1, 0]);
   });
 });

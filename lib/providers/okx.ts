@@ -1,6 +1,7 @@
 import { tokenAddressEquals, type TokenMarketCandidate } from "@/lib/token-market";
 import type { Candle } from "@/lib/market";
 import type { KlineInterval } from "@/lib/kline";
+import { acquireApiLock, assertApiBudget, readApiCache, recordExternalHttp, releaseApiLock, storeApiCache } from "@/lib/external-api-control";
 
 type JsonRecord = Record<string, unknown>;
 export type SupportedMarketChain = "sol" | "bsc" | "base" | "robinhood";
@@ -84,16 +85,18 @@ export function parseOkxCandles(payload: unknown): Candle[] {
   return [...rows.values()].sort((a, b) => a.time - b.time);
 }
 
-type ClientOptions = { fetcher?: typeof fetch; now?: () => number; sleep?: (ms: number) => Promise<void> };
+type ClientOptions = { fetcher?: typeof fetch; now?: () => number; sleep?: (ms: number) => Promise<void>; db?: D1Database; task?: string };
 type Cached = { expiresAt: number; staleUntil: number; value: unknown };
 
 export class OkxMarketClient {
   private readonly fetcher: typeof fetch; private readonly now: () => number; private readonly sleep: (ms: number) => Promise<void>;
+  private readonly db: D1Database | undefined; private readonly task: string;
   private readonly cache = new Map<string, Cached>(); private readonly pending = new Map<string, Promise<OkxResult<unknown>>>();
   private activeRequests = 0; private readonly requestWaiters: Array<() => void> = [];
   private circuitOpenUntil = 0;
   constructor(private readonly credentials: OkxCredentials, options: ClientOptions = {}) {
     this.fetcher = options.fetcher ?? fetch; this.now = options.now ?? Date.now; this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    this.db = options.db; this.task = options.task || "market_adapter";
   }
 
   private async withRequestSlot<T>(task: () => Promise<T>): Promise<T> {
@@ -103,17 +106,33 @@ export class OkxMarketClient {
     finally { this.activeRequests -= 1; this.requestWaiters.shift()?.(); }
   }
 
-  private async request<T>(cacheKey: string, method: "GET" | "POST", pathWithQuery: string, body: string, ttlMs: number, parse: (payload: unknown) => T): Promise<OkxResult<T>> {
+  private async request<T>(cacheKey: string, method: "GET" | "POST", pathWithQuery: string, body: string, ttlMs: number, parse: (payload: unknown) => T, context: { tier: "basic" | "premium"; endpoint: string; chain?: string; address?: string; tokenCount?: number }): Promise<OkxResult<T>> {
     const cached = this.cache.get(cacheKey); if (cached && cached.expiresAt > this.now()) return { value: cached.value as T, meta: { requestCount: 0, latencyMs: 0, cacheHit: true, rateLimited: false, status: "healthy" } };
     const existing = this.pending.get(cacheKey); if (existing) return existing as Promise<OkxResult<T>>;
     if (this.circuitOpenUntil > this.now()) throw new OkxRequestError("circuit_open", "OKX market circuit is temporarily open");
     const promise = (async () => {
+      const persistentKey = `okx:${cacheKey}`;
+      const persisted = await readApiCache<unknown>(this.db, persistentKey);
+      if (persisted.hit) {
+        const value = parse(persisted.value); this.cache.set(cacheKey, { expiresAt: this.now() + ttlMs, staleUntil: this.now() + Math.max(ttlMs * 20, 5 * 60_000), value });
+        return { value, meta: { requestCount: 0, latencyMs: 0, cacheHit: true, rateLimited: false, status: "healthy" as const } };
+      }
+      const stale = await readApiCache<unknown>(this.db, persistentKey, true);
+      const lock = await acquireApiLock(this.db, { cacheKey: persistentKey, provider: "okx", endpoint: context.endpoint, chain: context.chain || "", address: context.address || "batch" });
+      if (!lock.acquired) {
+        for (let wait = 0; wait < 6; wait += 1) { await this.sleep(250); const filled = await readApiCache<unknown>(this.db, persistentKey); if (filled.hit) return { value: parse(filled.value), meta: { requestCount: 0, latencyMs: 0, cacheHit: true, rateLimited: false, status: "healthy" as const } }; }
+        if (stale.hit) return { value: parse(stale.value), meta: { requestCount: 0, latencyMs: 0, cacheHit: true, rateLimited: false, status: "degraded" as const } };
+        throw new OkxRequestError("circuit_open", "OKX equivalent request is already in progress");
+      }
       const started = this.now(); let requests = 0; let lastStatus = 0;
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        requests += 1; const timestamp = new Date(this.now()).toISOString(); const headers = await okxHeaders(this.credentials, timestamp, method, pathWithQuery, body);
+      try { for (let attempt = 0; attempt < 2; attempt += 1) {
+        await assertApiBudget(this.db, "okx", context.tier, new Date(this.now()));
+        requests += 1; let responseRecorded = false; const timestamp = new Date(this.now()).toISOString(); const headers = await okxHeaders(this.credentials, timestamp, method, pathWithQuery, body);
         try {
           const response = await this.withRequestSlot(() => this.fetcher(`https://web3.okx.com${pathWithQuery}`, { method, headers, body: method === "POST" ? body : undefined, signal: AbortSignal.timeout(8000) }));
           lastStatus = response.status;
+          await recordExternalHttp(this.db, { provider: "okx", tier: context.tier, endpoint: context.endpoint, task: this.task, chain: context.chain, tokenCount: context.tokenCount, status: response.ok ? "success" : "http_error", httpStatus: response.status, latencyMs: this.now() - started, retryNumber: attempt, rateLimited: response.status === 429 }, new Date(this.now()));
+          responseRecorded = true;
           if (response.status === 429) { if (attempt === 0) { await this.sleep(250); continue; } this.circuitOpenUntil = this.now() + 30_000; throw new OkxRequestError("rate_limited", "OKX market rate limited", 429); }
           if (!response.ok) { if (response.status >= 500 && attempt === 0) { await this.sleep(250); continue; } throw new OkxRequestError(response.status === 401 || response.status === 403 ? "authentication" : "upstream", "OKX market request failed", response.status); }
           const payload = await response.json(); const root = record(payload);
@@ -124,17 +143,19 @@ export class OkxMarketClient {
             throw new OkxRequestError(kind, `OKX market business error ${String(root.code)}`);
           }
           const value = parse(payload); this.cache.set(cacheKey, { expiresAt: this.now() + ttlMs, staleUntil: this.now() + Math.max(ttlMs * 20, 5 * 60_000), value });
+          await storeApiCache(this.db, { cacheKey: persistentKey, provider: "okx", endpoint: context.endpoint, chain: context.chain || "", address: context.address || "batch", value: payload, negative: Array.isArray(record(payload).data) && (record(payload).data as unknown[]).length === 0, ttlMs, staleMs: Math.max(ttlMs * 20, 5 * 60_000), owner: lock.owner }, new Date(this.now()));
           return { value, meta: { requestCount: requests, latencyMs: Math.max(0, this.now() - started), cacheHit: false, rateLimited: false, status: "healthy" as const } };
         } catch (error) {
           if (error instanceof OkxRequestError) {
             if (cached && cached.staleUntil > this.now()) return { value: cached.value as T, meta: { requestCount: requests, latencyMs: Math.max(0, this.now() - started), cacheHit: true, rateLimited: error.kind === "rate_limited", status: "degraded" as const } };
             throw error;
           }
+          if (!responseRecorded) await recordExternalHttp(this.db, { provider: "okx", tier: context.tier, endpoint: context.endpoint, task: this.task, chain: context.chain, tokenCount: context.tokenCount, status: error instanceof DOMException && error.name === "TimeoutError" ? "timeout" : "network_error", latencyMs: this.now() - started, retryNumber: attempt }, new Date(this.now()));
           if (attempt === 0) { await this.sleep(250 + Math.floor(Math.random() * 100)); continue; }
           if (cached && cached.staleUntil > this.now()) return { value: cached.value as T, meta: { requestCount: requests, latencyMs: Math.max(0, this.now() - started), cacheHit: true, rateLimited: false, status: "degraded" as const } };
           throw new OkxRequestError(error instanceof DOMException && error.name === "TimeoutError" ? "timeout" : "upstream", "OKX market request failed", lastStatus);
         }
-      }
+      }} finally { await releaseApiLock(this.db, persistentKey, lock.owner); }
       throw new OkxRequestError("upstream", "OKX market request failed", lastStatus);
     })() as Promise<OkxResult<unknown>>;
     this.pending.set(cacheKey, promise);
@@ -145,7 +166,7 @@ export class OkxMarketClient {
     const normalized = tokens.filter((token): token is { chain: SupportedMarketChain; address: string } => token.chain in OKX_CHAIN_INDEX && Boolean(token.address)).map((token) => ({ chain: token.chain, address: token.address, chainIndex: OKX_CHAIN_INDEX[token.chain], tokenContractAddress: cacheAddress(token.chain, token.address) }));
     const body = JSON.stringify(normalized.map(({ chainIndex, tokenContractAddress }) => ({ chainIndex, tokenContractAddress })));
     const cacheKey = `price:${normalized.map((token) => `${token.chainIndex}:${token.tokenContractAddress}`).join(",")}`;
-    return this.request(cacheKey, "POST", "/api/v6/dex/market/price-info", body, 2_000, (payload) => parseOkxPriceInfo(payload, normalized));
+    return this.request(cacheKey, "POST", "/api/v6/dex/market/price-info", body, 60_000, (payload) => parseOkxPriceInfo(payload, normalized), { tier: "premium", endpoint: "/api/v6/dex/market/price-info", tokenCount: normalized.length });
   }
 
   candles(chain: SupportedMarketChain, address: string, interval: KlineInterval, limit: number) {
@@ -154,7 +175,7 @@ export class OkxMarketClient {
       const query = new URLSearchParams({ chainIndex: OKX_CHAIN_INDEX[chain], tokenContractAddress: cacheAddress(chain, address), bar: OKX_KLINE_BAR[interval], limit: String(Math.min(299, pageLimit)) });
       if (after) query.set("after", String(after));
       const path = `/api/v6/dex/market/candles?${query.toString()}`;
-      return this.request(`okx:candles:${chain}:${cacheAddress(chain, address)}:${interval}:${pageLimit}:${after || "latest"}`, "GET", path, "", total <= 5 ? 3_000 : 30_000, parseOkxCandles);
+      return this.request(`okx:candles:${chain}:${cacheAddress(chain, address)}:${interval}:${pageLimit}:${after || "latest"}`, "GET", path, "", total <= 5 ? 15_000 : 5 * 60_000, parseOkxCandles, { tier: "basic", endpoint: "/api/v6/dex/market/candles", chain, address, tokenCount: 1 });
     };
     return (async (): Promise<OkxResult<Candle[]>> => {
       const first = await page(Math.min(299, total));

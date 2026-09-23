@@ -4,6 +4,7 @@ import { parseAveToken, parseGmgnToken, resolveTokenMarket, tokenAddressEquals, 
 import { canRequest, nextBackoff, type BackoffState } from "@/lib/source-backoff";
 import { OKX_CHAIN_INDEX, OkxMarketClient, OkxRequestError, okxCredentialsFromEnv, type OkxRequestMeta, type SupportedMarketChain } from "@/lib/providers/okx";
 import { getTokenInfo as getGmgnTokenInfo } from "@/lib/gmgn";
+import { readApiCache, storeApiCache, tokenCacheKey } from "@/lib/external-api-control";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -64,7 +65,7 @@ function runtimeEnv(name: string): string { const value = (env as unknown as Rec
 function getOkxClient() {
   const credentials = okxCredentialsFromEnv(env as unknown as Record<string, unknown>);
   if (!credentials) return undefined;
-  okxClient ??= new OkxMarketClient(credentials);
+  okxClient ??= new OkxMarketClient(credentials, { db: env.DB, task: "kline_on_demand" });
   return okxClient;
 }
 async function fetchWithRetry(url: string, init: RequestInit, attempts = 2): Promise<Response> {
@@ -136,17 +137,21 @@ export async function getMarketData(chain: string, address: string, options: { u
   // Ave is opt-in shadow sampling only. Public pages and polling must never
   // consume its quota or rely on it for production fields.
   const useAve = options.useAve === true;
-  const [dex, gmgn, okx, ave] = await Promise.all([
+  const aggregateKey = tokenCacheKey("market", "snapshot", chain, address);
+  if (!useAve) {
+    const cached = await readApiCache<{ market: MarketData }>(env.DB, aggregateKey);
+    if (cached.hit && cached.value?.market) return cached.value.market;
+  }
+  const [dex, gmgn, ave] = await Promise.all([
     getDexMarket(chain, address).catch(() => emptyMarket),
     getGmgnMarket(chain, address),
-    getOkxClient()?.priceInfo([{ chain, address }]).then((result) => result.value.get(`${chain}:${chain === "sol" ? address : address.toLowerCase()}`) ?? null).catch(() => null) ?? Promise.resolve(null),
     useAve ? getAveMarket(chain, address) : Promise.resolve<TokenMarketCandidate | null>(null),
   ]);
   const dexCandidate: TokenMarketCandidate = { source: "dex", chain, address, pairAddress: dex.pairAddress, name: dex.name, symbol: dex.symbol, logo: dex.logo, description: dex.description, descriptionSource: null, price: dex.price || null, priceChange24h: dex.priceChange24h, marketCap: null, fdv: dex.fdv, circulatingSupply: null, totalSupply: null, decimals: null, liquidity: dex.liquidity || null, volume24h: dex.volume24h || null, holderCount: null, createdAt: dex.createdAt || null, updatedAt: new Date().toISOString(), identityVerified: dex.identityVerified };
   // Ave is sampled for health during the transition, but does not participate
   // in production field selection. This keeps it a true shadow source.
-  const resolved = resolveTokenMarket([okx, gmgn, dexCandidate]);
-  return {
+  const resolved = resolveTokenMarket([gmgn, dexCandidate]);
+  const result: MarketData = {
     // Token identity and fields come only from the verified production
     // providers above. The optional Ave result is health-only shadow evidence.
     name: resolved.name, symbol: resolved.symbol, logo: resolved.logo, description: resolved.description, descriptionSource: resolved.descriptionSource, descriptionUpdatedAt: resolved.descriptionUpdatedAt, website: resolved.website, socials: resolved.socials, price: resolved.price ?? 0, priceChange24h: resolved.priceChange24h, change24hSource: resolved.change24hSource, change24hUpdatedAt: resolved.change24hUpdatedAt,
@@ -155,8 +160,11 @@ export async function getMarketData(chain: string, address: string, options: { u
     liquidity: resolved.liquidity ?? 0, holders: resolved.holderCount, holderSource: resolved.holderSource, holderUpdatedAt: resolved.holderUpdatedAt,
     volume24h: resolved.volume24h ?? 0, pairAddress: string(dex.pairAddress || resolved.pairAddress), dexUrl: string(dex.dexUrl), createdAt: resolved.createdAt ?? 0,
     identityVerified: resolved.identityVerified,
-    sourceStatus: { okx: okx?.identityVerified ? "healthy" : getOkxClient() ? "unavailable" : "unavailable", ...(useAve ? { ave: ave?.identityVerified ? "healthy" as const : "unavailable" as const } : {}), gmgn: gmgn?.identityVerified ? "healthy" : gmgnBackoff ? "rate_limited" : "unavailable", dex: dex.identityVerified ? "healthy" : "unavailable" },
+    sourceStatus: { ...(useAve ? { ave: ave?.identityVerified ? "healthy" as const : "unavailable" as const } : {}), gmgn: gmgn?.identityVerified ? "healthy" : gmgnBackoff ? "rate_limited" : "unavailable", dex: dex.identityVerified ? "healthy" : "unavailable" },
   };
+  const usable = result.identityVerified && (result.price > 0 || result.marketCap > 0 || result.liquidity > 0 || result.volume24h > 0 || result.holders !== null);
+  await storeApiCache(env.DB, { cacheKey: aggregateKey, provider: "market", endpoint: "snapshot", chain, address, value: { market: result, capturedAt: new Date().toISOString() }, negative: !usable, ttlMs: usable ? 10 * 60_000 : 30 * 60_000, staleMs: usable ? 24 * 60 * 60_000 : 2 * 60 * 60_000 });
+  return result;
 }
 
 type KlineAttempt = { candles: Candle[]; failureKind?: KlineFailureKind };

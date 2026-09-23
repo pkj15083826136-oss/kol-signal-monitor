@@ -23,10 +23,10 @@ function fields(item: BatchMarketItem) {
 export async function recordMarketSamples(db: D1Database | undefined, items: BatchMarketItem[], now = new Date()) {
   if (!db || !items.length) return;
   const bucket = bucket15m(now); const capturedAt = now.toISOString();
-  await db.batch(items.map((item) => db.prepare(`INSERT INTO provider_samples
+  await db.batch(items.map((item, index) => db.prepare(`INSERT INTO provider_samples
     (source, chain, token_address, data_kind, interval, bucket, observation_count, request_count, success, status, latency_ms, cache_hit, rate_limited, identity_verified, available_fields_json, source_timestamp, captured_at)
     VALUES (?, ?, ?, 'market', 0, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ${PROVIDER_SAMPLE_UPSERT}`)
-    .bind("okx", item.chain, item.address, bucket, item.providerMeta?.requestCount ?? 0, item.source.includes("OKX") && item.identityVerified ? 1 : 0,
+    .bind("okx", item.chain, item.address, bucket, index === 0 ? item.providerMeta?.requestCount ?? 0 : 0, item.source.includes("OKX") && item.identityVerified ? 1 : 0,
       item.providerMeta?.status ?? "unavailable", item.providerMeta?.latencyMs ?? 0, item.providerMeta?.cacheHit ? 1 : 0, item.providerMeta?.rateLimited ? 1 : 0,
       item.identityVerified ? 1 : 0, JSON.stringify(fields(item)), item.sourceTimestamp || null, capturedAt)));
 }

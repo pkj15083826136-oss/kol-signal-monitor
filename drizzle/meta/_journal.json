@@ -113,6 +113,20 @@
       "when": 1790073036384,
       "tag": "0015_blushing_bill_hollister",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1790151237261,
+      "tag": "0016_keen_electro",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1790151590963,
+      "tag": "0017_eminent_mauler",
+      "breakpoints": true
     }
   ]
 }
