@@ -1,5 +1,5 @@
-import { RADAR_PROMPT_VERSION } from "@/lib/radar/ai";
-import { normalizeRadarCandidate, persistRadarCandidate } from "@/lib/radar/intake";
+import { RADAR_PROMPT_VERSION, radarAiFallback } from "@/lib/radar/ai";
+import { claimRadarNarrativeTask, normalizeRadarCandidate, persistRadarCandidate } from "@/lib/radar/intake";
 import { reviewRadarCandidate } from "@/lib/radar/reviewer";
 
 function parseObject(value: unknown) { try { const parsed = JSON.parse(String(value || "{}")); return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : {}; } catch { return {}; } }
@@ -18,10 +18,14 @@ export async function backfillRadarNarratives(db: D1Database, apiKey: string | u
     const raw = parseObject(row.raw_input_json);
     const candidate = normalizeRadarCandidate({
       source: row.source_name, sourceEventId: row.source_event_id, chain: row.chain, tokenAddress: row.token_address, pairAddress: row.pair_address, dexId: row.dex_id, routerId: row.router_id, launchpadId: row.launchpad_id, factoryAddress: row.factory_address, sourcePairLabel: row.source_pair_label,
-      name: row.name, symbol: row.symbol, firstSeenAt: row.first_seen_at, poolCreatedAt: row.pool_created_at, price: row.price, marketCap: row.market_cap, liquidity: row.liquidity, volume24h: row.volume_24h, holders: row.holders, buyers: row.buyers, sellers: row.sellers, smartMoneyCount: row.smart_money_count, dataFetchedAt: row.updated_at, identityVerified: row.identity_status === "VERIFIED", sellSimulationPassed: null, honeypot: null, mintable: null, freezable: null, blacklistable: null, taxModifiable: null, buyTaxBps: null, sellTaxBps: null, lpLocked: null, topHolderPct: raw.top10_ratio, developerRisk: "unknown", priceImpactBps: null, sourceConflict: false, rawSnapshot: raw,
+      name: row.name, symbol: row.symbol, firstSeenAt: row.first_seen_at, poolCreatedAt: row.pool_created_at, price: row.price, marketCap: row.market_cap, liquidity: row.liquidity, volume24h: row.volume_24h, holders: row.holders, buyers: row.buyers, sellers: row.sellers, smartMoneyCount: row.smart_money_count, dataFetchedAt: row.updated_at, identityVerified: row.identity_status === "VERIFIED", sellSimulationPassed: null, honeypot: null, mintable: null, freezable: null, blacklistable: null, taxModifiable: null, buyTaxBps: null, sellTaxBps: null, lpLocked: null, topHolderPct: raw.top10_ratio, developerRisk: "unknown", priceImpactBps: null, sourceConflict: false, sourceProjectDescription: row.source_project_description, sourceDescriptionRaw: row.source_description_raw, sourceDescriptionAt: row.source_description_at || row.first_seen_at, sourceDescriptionSource: row.source_description_source || row.source_name, rawSnapshot: raw,
     });
     if (!candidate) { summary.skipped += 1; continue; }
-    const review = await reviewRadarCandidate(candidate, apiKey);
+    await persistRadarCandidate(db, candidate, radarAiFallback("PENDING", null, candidate.firstSeenAt));
+    const claim = await claimRadarNarrativeTask(db, Number(row.id), candidate);
+    if (!claim.claimed) { summary.skipped += 1; continue; }
+    const frozenCandidate = { ...candidate, sourceProjectDescription: claim.sourceProjectDescription, sourceDescriptionRaw: claim.sourceDescriptionRaw };
+    const review = await reviewRadarCandidate(frozenCandidate, apiKey, fetch, { entryPoint: "radar_backfill", claimFingerprint: claim.fingerprint });
     await persistRadarCandidate(db, candidate, review);
     if (review.status === "COMPLETED") summary.completed += 1;
     else if (review.status === "INSUFFICIENT_EVIDENCE") summary.insufficientEvidence += 1;

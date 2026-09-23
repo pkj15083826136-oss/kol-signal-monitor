@@ -6,12 +6,42 @@ export type NarrativeStatus = typeof NARRATIVE_STATUSES[number];
 export type CheckState = "PASS" | "FAIL" | "UNKNOWN" | "NOT_APPLICABLE";
 export type TradeEligibilityStatus = "PASS" | "FAIL" | "UNKNOWN";
 export type NarrativeEvidence = {
-  url: string | null;
-  title: string;
+  source_url: string | null;
+  x_post_id: string | null;
+  author_handle: string | null;
+  author_name: string | null;
   published_at: string | null;
-  relation: "support" | "oppose" | "context";
-  reason: string;
-  available_at_signal: boolean;
+  short_summary: string;
+  evidence_relation: "TOKEN_DIRECT" | "PROJECT_OFFICIAL" | "CATALYST_PRIMARY" | "THEME_CONTEXT" | "COMMUNITY_PROPAGATION" | "COUNTER_EVIDENCE" | "LOOKALIKE_OLD_MEME";
+  relevance_score: number;
+  engagement_metrics: Record<string, number>;
+  before_signal_cutoff: boolean;
+};
+export type NarrativeSearchPlan = {
+  narrative_hypothesis: string;
+  core_entities: string[];
+  event_entities: string[];
+  cultural_reference: string | null;
+  token_identity_terms: string[];
+  primary_query: string;
+  fallback_topic_query: string;
+  expected_evidence_types: string[];
+  ambiguity_warning: string | null;
+};
+export type XaiUsageEvent = {
+  request_id: string;
+  response_id: string | null;
+  task_type: "RADAR_NARRATIVE_PLAN" | "RADAR_NARRATIVE_SEARCH" | "JSON_REPAIR" | "RADAR_BACKFILL" | "KOL_STAGE_6" | "KOL_STAGE_38" | "NARRATIVE_LEARNING" | "MANUAL_ANALYSIS";
+  entry_point: string;
+  attempt: number;
+  status: string;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  x_search_calls: number | null;
+  x_posts_fetched: number | null;
+  x_users_fetched: number | null;
+  cost_in_usd_ticks: number | null;
+  fetch_status: "NOT_APPLICABLE" | "NORMAL" | "ACCEPTABLE" | "FETCH_WARNING" | "EXCESSIVE_X_FETCH" | "UNKNOWN";
 };
 export type TradeCheck = { key: string; label: string; state: CheckState; reason: string };
 export type TradeEligibility = {
@@ -60,6 +90,11 @@ export type RadarCandidate = {
   developerRisk: "known_bad" | "clear" | "unknown";
   priceImpactBps: number | null;
   sourceConflict: boolean;
+  sourceProjectDescription?: string | null;
+  sourceDescriptionRaw?: string | null;
+  sourceDescriptionAt?: string | null;
+  sourceDescriptionSource?: string | null;
+  knownProjectAccount?: string | null;
   launchpadProgram?: string | null;
   launchpadFactoryVerified?: boolean;
   launchpadPairVerified?: boolean;
@@ -73,6 +108,8 @@ export type RadarAiReview = {
   decision: RadarDecision;
   confidence: number;
   narrative_score: number | null;
+  meme_potential_score: number | null;
+  catalyst_evidence_score: number | null;
   risk_score: number | null;
   stage: string;
   summary: string;
@@ -94,6 +131,16 @@ export type RadarAiReview = {
   input_tokens: number | null;
   output_tokens: number | null;
   cost_microusd: number | null;
+  cost_in_usd_ticks: number | null;
+  discovery_plan: NarrativeSearchPlan | null;
+  claim_fingerprint: string | null;
+  analysis_stage: string;
+  x_search_calls: number | null;
+  x_posts_fetched: number | null;
+  x_users_fetched: number | null;
+  fetch_status: XaiUsageEvent["fetch_status"];
+  response_id: string | null;
+  usage_events: XaiUsageEvent[];
 };
 
 export type HardFilterResult = { passed: boolean; status: TradeEligibilityStatus; reasons: string[]; checks: TradeCheck[]; riskComments: string[]; identityStatus: TradeEligibility["identityStatus"] };

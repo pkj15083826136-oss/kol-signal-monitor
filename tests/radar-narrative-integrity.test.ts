@@ -69,7 +69,7 @@ describe("radar narrative and trade integrity regressions", () => {
   it("runs narrative analysis even when trade eligibility is blocked or incomplete", () => {
     const source = readFileSync(new URL("../app/api/radar/collect/route.ts", import.meta.url), "utf8");
     expect(source).not.toContain("gate.passed ? await reviewRadarCandidate");
-    expect(source).toContain("reviewRadarCandidate(candidate");
+    expect(source).toContain("reviewRadarCandidate(frozenCandidate");
   });
 
   it("does not coerce nullable narrative scores to zero in the API view", () => {

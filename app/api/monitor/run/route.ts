@@ -404,6 +404,12 @@ async function runMonitor(selectedChain: typeof CHAINS[number], supplied?: Suppl
         ai_analysis: d1Text(narrative.aiAnalysis), wallet_names_json: d1Json(walletNames, []), alerted_at: new Date().toISOString(), alert_payload_json: d1Json(alertPayload),
       }).run();
       const signalId = Number(inserted.meta.last_row_id);
+      if ((due === 6 || due === 38) && narrative.usage) {
+        const postsFetched = narrative.usage.xPostsFetched;
+        const fetchStatus = postsFetched === null ? "UNKNOWN" : postsFetched <= 5 ? "NORMAL" : postsFetched <= 10 ? "ACCEPTABLE" : postsFetched <= 20 ? "FETCH_WARNING" : "EXCESSIVE_X_FETCH";
+        await db.prepare(`INSERT INTO xai_request_usage (request_id,response_id,candidate_id,chain,token_address,task_type,entry_point,attempt,status,input_tokens,output_tokens,x_search_calls,x_posts_fetched,x_users_fetched,cost_in_usd_ticks,fetch_status,created_at) VALUES (?,?,?,?,?,?,?,1,'SUCCESS',?,?,?,?,?,?,?,?) ON CONFLICT(request_id) DO NOTHING`)
+          .bind(narrative.usage.responseId || crypto.randomUUID(), narrative.usage.responseId, String(signalId), chain, token, due === 6 ? "KOL_STAGE_6" : "KOL_STAGE_38", "monitor_threshold", narrative.usage.inputTokens, narrative.usage.outputTokens, narrative.usage.xSearchCalls, postsFetched, narrative.usage.xUsersFetched, narrative.usage.costInUsdTicks, fetchStatus, new Date().toISOString()).run();
+      }
       if (due === 6 || due === 38) {
         for (const post of narrative.posts) {
           await write(db, "INSERT INTO hot_posts (signal_id, rank, author, posted_at, url, original, chinese, engagement) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", "hot_posts.insert", {

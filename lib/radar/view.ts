@@ -1,11 +1,14 @@
 import type { NarrativeEvidence, TradeCheck } from "@/lib/radar/types";
 import { collectorDisplayState, emptyLearningSummary, type LearningSummary, type OutcomeGroup, type PromptState } from "@/lib/radar/learning";
+import { isSearchActionDescription, safeXPostUrl } from "@/lib/radar/ai";
 
 export type RadarViewRow = {
   id: string; chain: string; tokenAddress: string; pairAddress: string | null; dexId: string | null; sourcePairLabel: string | null; identityStatus: string;
   name: string; symbol: string; status: string; signalSource: string; signalType: string; firstSeenAt: string; poolCreatedAt: string | null;
   price: string | null; marketCap: number | null; liquidity: number | null; volume24h: number | null; holders: number | null; buyers: number | null; sellers: number | null; smartMoneyCount: number;
   securityScore: number; narrativeScore: number | null; narrativeStatus: string; narrativeSummary: string; narrativeFreshness: number | null; narrativeSentiment: number | null; narrativeLead: number | null; narrativeStage: string; narrativeEvidence: NarrativeEvidence[];
+  memePotentialScore: number | null; catalystEvidenceScore: number | null; sourceProjectDescription: string | null; sourceDescriptionAt: string | null; sourceDescriptionSource: string | null;
+  xSearchCalls: number | null; xPostsFetched: number | null; xUsersFetched: number | null; xCostUsd: number | null; xFetchStatus: string;
   momentumScore: number; totalScore: number; aiDecision: string; aiConfidence: number; tradeStatus: string; tradeShortReason: string; tradeChecks: TradeCheck[]; riskComments: string[];
   paperEntered: boolean; autoBuyTriggered: boolean; plannedBuyUsd: string | null; executedPrice: string | null; currentReturnBps: number | null; maxReturnBps: number | null; takeProfitCount: number; remainingPosition: string | null;
   rejectReason: string | null; dataFreshnessMs: number | null; sourceStatus: string; rawInput: string;
@@ -14,13 +17,23 @@ export type RadarDashboardData = { rows: RadarViewRow[]; paperOrders: Array<Reco
 
 function optionalNumber(value: unknown) { const parsed = Number(value); return value === null || value === undefined || !Number.isFinite(parsed) ? null : parsed; }
 function jsonArray<T>(value: unknown): T[] { try { const parsed = JSON.parse(String(value || "[]")); return Array.isArray(parsed) ? parsed as T[] : []; } catch { return []; } }
+function viewEvidence(value: unknown): NarrativeEvidence[] {
+  return jsonArray<Record<string, unknown>>(value).flatMap((row) => {
+    const summary = String(row.short_summary || row.reason || row.title || "").trim();
+    if (!summary || isSearchActionDescription(summary)) return [];
+    const sourceUrl = safeXPostUrl(row.source_url ?? row.url);
+    return [{ source_url: sourceUrl, x_post_id: row.x_post_id ? String(row.x_post_id) : sourceUrl?.match(/\/status\/(\d+)/)?.[1] || null, author_handle: row.author_handle ? String(row.author_handle).replace(/^@/, "") : null, author_name: row.author_name ? String(row.author_name) : null, published_at: row.published_at ? String(row.published_at) : null, short_summary: summary, evidence_relation: String(row.evidence_relation || "THEME_CONTEXT") as NarrativeEvidence["evidence_relation"], relevance_score: Number(row.relevance_score || 0), engagement_metrics: row.engagement_metrics && typeof row.engagement_metrics === "object" ? row.engagement_metrics as Record<string, number> : {}, before_signal_cutoff: row.before_signal_cutoff === true || row.available_at_signal === true }];
+  }).slice(0, 5);
+}
 function mapRadar(row: Record<string, unknown>): RadarViewRow {
   return {
     id: `radar:${row.id}`, chain: String(row.chain), tokenAddress: String(row.token_address), pairAddress: row.pair_address ? String(row.pair_address) : null,
     dexId: row.dex_id ? String(row.dex_id) : null, sourcePairLabel: row.source_pair_label ? String(row.source_pair_label) : null, identityStatus: String(row.trade_identity_status || row.identity_status || "UNVERIFIED"),
     name: String(row.name || "Unknown"), symbol: String(row.symbol || "—"), status: String(row.status), signalSource: String(row.signal_source || "radar"), signalType: String(row.signal_type || "candidate"), firstSeenAt: String(row.first_seen_at), poolCreatedAt: row.pool_created_at ? String(row.pool_created_at) : null,
     price: row.price ? String(row.price) : null, marketCap: optionalNumber(row.market_cap), liquidity: optionalNumber(row.liquidity), volume24h: optionalNumber(row.volume_24h), holders: optionalNumber(row.holders), buyers: optionalNumber(row.buyers), sellers: optionalNumber(row.sellers), smartMoneyCount: Number(row.smart_money_count || 0),
-    securityScore: Number(row.security_score || 0), narrativeScore: optionalNumber(row.narrative_score_v2), narrativeStatus: String(row.narrative_analysis_status || row.narrative_status || "PENDING"), narrativeSummary: String(row.narrative_analysis_summary || row.narrative_summary || "AI叙事分析中"), narrativeFreshness: optionalNumber(row.freshness_score), narrativeSentiment: optionalNumber(row.sentiment_score), narrativeLead: optionalNumber(row.lead_score), narrativeStage: String(row.narrative_stage || "unknown"), narrativeEvidence: jsonArray<NarrativeEvidence>(row.evidence_json),
+    securityScore: Number(row.security_score || 0), narrativeScore: optionalNumber(row.narrative_score_v2), narrativeStatus: String(row.narrative_analysis_status || row.narrative_status || "PENDING"), narrativeSummary: String(row.narrative_analysis_summary || row.narrative_summary || "AI叙事分析中"), narrativeFreshness: optionalNumber(row.freshness_score), narrativeSentiment: optionalNumber(row.sentiment_score), narrativeLead: optionalNumber(row.lead_score), narrativeStage: String(row.narrative_stage || "unknown"), narrativeEvidence: viewEvidence(row.evidence_json),
+    memePotentialScore: optionalNumber(row.meme_potential_score), catalystEvidenceScore: optionalNumber(row.catalyst_evidence_score), sourceProjectDescription: row.source_project_description ? String(row.source_project_description) : null, sourceDescriptionAt: row.source_description_at ? String(row.source_description_at) : null, sourceDescriptionSource: row.source_description_source ? String(row.source_description_source) : null,
+    xSearchCalls: optionalNumber(row.x_search_calls), xPostsFetched: optionalNumber(row.x_posts_fetched), xUsersFetched: optionalNumber(row.x_users_fetched), xCostUsd: row.cost_in_usd_ticks === null || row.cost_in_usd_ticks === undefined ? null : Number(row.cost_in_usd_ticks) / 10_000_000_000, xFetchStatus: String(row.fetch_status || "UNKNOWN"),
     momentumScore: Number(row.momentum_score || 0), totalScore: Number(row.total_score || 0), aiDecision: String(row.ai_decision || "HOLD"), aiConfidence: Number(row.ai_confidence || 0), tradeStatus: String(row.trade_status || "UNKNOWN"), tradeShortReason: String(row.trade_short_reason || "交易条件待补全"), tradeChecks: jsonArray<TradeCheck>(row.checks_json), riskComments: jsonArray<string>(row.risk_comments_json),
     paperEntered: Boolean(row.paper_position_id), autoBuyTriggered: false, plannedBuyUsd: row.planned_buy_usd ? String(row.planned_buy_usd) : null, executedPrice: row.executed_price ? String(row.executed_price) : null, currentReturnBps: optionalNumber(row.current_return_bps), maxReturnBps: optionalNumber(row.max_return_bps), takeProfitCount: Number(row.take_profit_count || 0), remainingPosition: row.remaining_quantity ? String(row.remaining_quantity) : null,
     rejectReason: row.reject_reason ? String(row.reject_reason) : null, dataFreshnessMs: optionalNumber(row.data_freshness_ms), sourceStatus: String(row.source_status_json || "{}"), rawInput: String(row.raw_input_json || "{}"),
@@ -31,7 +44,7 @@ export async function loadRadarDashboard(db: D1Database): Promise<RadarDashboard
   const now = new Date().toISOString();
   const [radar, positions, orders, collector, sampleGroups, manualCases, promptVersions] = await Promise.all([
     db.prepare(`SELECT r.*, (SELECT source FROM radar_signal_sources s WHERE s.radar_signal_id=r.id ORDER BY observed_at ASC LIMIT 1) signal_source,
-      n.status narrative_analysis_status,n.summary narrative_analysis_summary,n.freshness_score,n.sentiment_score,n.lead_score,n.stage narrative_stage,n.evidence_json,
+      n.status narrative_analysis_status,n.summary narrative_analysis_summary,n.freshness_score,n.sentiment_score,n.lead_score,n.stage narrative_stage,n.evidence_json,n.meme_potential_score,n.catalyst_evidence_score,n.x_search_calls,n.x_posts_fetched,n.x_users_fetched,n.cost_in_usd_ticks,n.fetch_status,
       t.status trade_status,t.identity_status trade_identity_status,t.short_reason trade_short_reason,t.checks_json,t.risk_comments_json,
       p.id paper_position_id,p.remaining_quantity,p.take_profit_count,
       CASE WHEN CAST(p.net_cost_usd AS REAL)>0 THEN CAST((CAST(p.current_executable_value_usd AS REAL)-CAST(p.net_cost_usd AS REAL))*10000/CAST(p.net_cost_usd AS REAL) AS INTEGER) END current_return_bps,

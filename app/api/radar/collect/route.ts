@@ -1,7 +1,8 @@
 import { env } from "cloudflare:workers";
 import { isMonitorAuthorized } from "@/lib/monitor-auth";
 import { reviewRadarCandidate } from "@/lib/radar/reviewer";
-import { loadTerminalRadarNarrative, normalizeRadarCandidate, persistRadarCandidate } from "@/lib/radar/intake";
+import { radarAiFallback } from "@/lib/radar/ai";
+import { claimRadarNarrativeTask, loadTerminalRadarNarrative, normalizeRadarCandidate, persistRadarCandidate } from "@/lib/radar/intake";
 
 export const dynamic = "force-dynamic";
 function text(value: unknown, fallback = "", max = 300) { return String(value ?? fallback).slice(0, max); }
@@ -26,8 +27,20 @@ export async function POST(request: Request) {
   const results = [];
   for (const candidate of candidates) {
     const stored = await loadTerminalRadarNarrative(env.DB, candidate);
-    const review = stored ?? await reviewRadarCandidate(candidate, typeof source.XAI_API_KEY === "string" ? source.XAI_API_KEY : undefined);
-    results.push(await persistRadarCandidate(env.DB, candidate, review));
+    if (stored) {
+      results.push({ ...(await persistRadarCandidate(env.DB, candidate, stored)), narrativeDeduplicated: true });
+      continue;
+    }
+    const pending = radarAiFallback("PENDING", null, candidate.firstSeenAt);
+    const reserved = await persistRadarCandidate(env.DB, candidate, pending);
+    const claim = await claimRadarNarrativeTask(env.DB, reserved.id, candidate);
+    if (!claim.claimed) {
+      results.push({ ...reserved, narrativeStatus: "RUNNING", narrativeDeduplicated: true });
+      continue;
+    }
+    const frozenCandidate = { ...candidate, sourceProjectDescription: claim.sourceProjectDescription, sourceDescriptionRaw: claim.sourceDescriptionRaw };
+    const review = await reviewRadarCandidate(frozenCandidate, typeof source.XAI_API_KEY === "string" ? source.XAI_API_KEY : undefined, fetch, { entryPoint: "radar_first_discovery", claimFingerprint: claim.fingerprint });
+    results.push({ ...(await persistRadarCandidate(env.DB, candidate, review)), narrativeDeduplicated: false });
   }
   return Response.json({ ok: true, count: results.length, results });
 }

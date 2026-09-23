@@ -15,6 +15,7 @@ export type NarrativeResult = {
   projectIntro: string;
   posts: HotPost[];
   raw: string;
+  usage?: { responseId: string | null; inputTokens: number | null; outputTokens: number | null; xSearchCalls: number | null; xPostsFetched: number | null; xUsersFetched: number | null; costInUsdTicks: number | null };
 };
 
 function apiKey() {
@@ -101,5 +102,13 @@ export async function analyzeNarrative(input: {
     aiAnalysis: String(parsed.ai_analysis ?? "暂未形成清晰叙事，等待更多有效讨论。").slice(0, 240),
     posts,
     raw,
+    usage: (() => {
+      const usage = payload.usage && typeof payload.usage === "object" ? payload.usage as Record<string, unknown> : {};
+      const details = usage.server_side_tool_usage_details && typeof usage.server_side_tool_usage_details === "object" ? usage.server_side_tool_usage_details as Record<string, unknown> : {};
+      const server = payload.server_side_tool_usage && typeof payload.server_side_tool_usage === "object" ? payload.server_side_tool_usage as Record<string, unknown> : {};
+      const number = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : null;
+      const calls = Object.entries(server).reduce((sum, [key, value]) => /x_search/i.test(key) ? sum + (number(value) || 0) : sum, 0);
+      return { responseId: typeof payload.id === "string" ? payload.id : null, inputTokens: number(usage.input_tokens), outputTokens: number(usage.output_tokens), xSearchCalls: number(usage.x_search_calls) ?? calls, xPostsFetched: number(details.x_posts_fetched ?? usage.x_posts_fetched), xUsersFetched: number(details.x_users_fetched ?? usage.x_users_fetched), costInUsdTicks: number(usage.cost_in_usd_ticks) };
+    })(),
   };
 }
