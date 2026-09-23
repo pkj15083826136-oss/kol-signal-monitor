@@ -76,5 +76,6 @@ describe("radar market enrichment and source status", () => {
   it("keeps enrichment read-only and feature-gated", () => {
     const source = readFileSync("app/api/radar/enrich/route.ts", "utf8"); expect(source).toContain("FEATURE_RADAR_READONLY_ENRICHMENT"); expect(source).not.toMatch(/sendTransaction|writeContract|signTransaction|privateKey|mnemonic/);
     const collector = readFileSync("app/api/radar/collect/route.ts", "utf8"); expect(collector).toContain("PARSE_FAILED"); expect(collector).toContain("DUPLICATE");
+    const runner = readFileSync("scripts/run-radar-enrichment.mjs", "utf8"); expect(runner).toContain("limit: 5"); expect(runner).not.toMatch(/GMGN_API_KEY|price-info|privateKey|signedTransaction/);
   });
 });
