@@ -1,4 +1,4 @@
-export type ApiProvider = "okx" | "gmgn" | "market";
+export type ApiProvider = "okx" | "gmgn" | "market" | "rpc";
 export type ApiTier = "basic" | "premium" | "free";
 
 export type CachedApiValue<T> = { hit: boolean; negative: boolean; stale: boolean; value: T | null };
@@ -7,6 +7,7 @@ const LIMITS: Record<string, { daily: number; monthly: number }> = {
   "okx:premium": { daily: 90, monthly: 2_500 },
   "okx:basic": { daily: 3_000, monthly: 90_000 },
   "gmgn:basic": { daily: 2_500, monthly: 75_000 },
+  "rpc:free": { daily: 20_000, monthly: 500_000 },
 };
 
 export class ApiBudgetExceededError extends Error {

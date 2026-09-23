@@ -86,10 +86,10 @@ describe("phase 1.1 production contracts", () => {
   it("freezes narrative events without future leakage", () => expect(frozenNarrativeInput("2026-09-22T00:00:00Z", [{ capturedAt: "2026-09-21T23:00:00Z", id: 1 }, { capturedAt: "2026-09-22T01:00:00Z", id: 2 }]).map((row) => row.id)).toEqual([1]));
   it("does not claim the Ave collector is ready without a recent real heartbeat", () => {
     const now = Date.parse("2026-09-22T00:10:00Z");
-    expect(collectorDisplayState(null, now)).toBe("BLOCKED_EXTERNAL_ENDPOINT");
-    expect(collectorDisplayState({ connection_status: "connected", login_status: "not_required", last_heartbeat_at: "2026-09-22T00:09:00Z" }, now)).toBe("CONNECTED");
-    expect(collectorDisplayState({ connection_status: "connected", login_status: "not_required", last_heartbeat_at: "2026-09-21T23:00:00Z" }, now)).toBe("BLOCKED_EXTERNAL_ENDPOINT");
-    expect(collectorDisplayState({ connection_status: "connected", login_status: "required", last_heartbeat_at: "2026-09-22T00:09:00Z" }, now)).toBe("LOGIN_EXPIRED");
+    expect(collectorDisplayState(null, now)).toBe("NOT_STARTED");
+    expect(collectorDisplayState({ connection_status: "connected", websocket_status: "connected", login_status: "not_required", last_heartbeat_at: "2026-09-22T00:09:00Z" }, now)).toBe("CONNECTED");
+    expect(collectorDisplayState({ connection_status: "connected", login_status: "not_required", last_heartbeat_at: "2026-09-21T23:00:00Z" }, now)).toBe("STALE");
+    expect(collectorDisplayState({ connection_status: "connected", login_status: "required", last_heartbeat_at: "2026-09-22T00:09:00Z" }, now)).toBe("LOGIN_REQUIRED");
   });
   it("creates an immutable narrative sample on first radar intake", () => {
     const intake = readFileSync(new URL("../lib/radar/intake.ts", import.meta.url), "utf8");

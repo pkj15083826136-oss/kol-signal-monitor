@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export default async function RadarPage() {
   const flags = tradingFeatureFlags(env as unknown as Record<string, string | undefined>);
-  const empty = { rows: [], paperOrders: [], positions: [], learning: emptyLearningSummary(), usingFallback: false, aveSmartStatus: "BLOCKED_EXTERNAL_ENDPOINT", aveSmartLastHeartbeatAt: null, gmgnTianyanStatus: "GMGN_TIAN_YAN_BLOCKED" as const, fetchedAt: new Date().toISOString() };
+  const empty = { rows: [], totalCandidates: 0, candidates24h: 0, nextOffset: null, paperOrders: [], positions: [], learning: emptyLearningSummary(), usingFallback: false, aveSmartStatus: "NOT_STARTED", aveSmartLastHeartbeatAt: null, aveCollector: null, gmgnApiHealth: [], gmgnTianyanStatus: "GMGN_TIAN_YAN_BLOCKED" as const, fetchedAt: new Date().toISOString() };
   const data = env.DB ? await loadRadarDashboard(env.DB).catch(() => empty) : empty;
   return <RadarDashboard initial={data} walletLoginEnabled={flags.radarWalletLogin} autoTradeEnabled={flags.radarAutoTrade} walletConnectEnabled={flags.walletConnect} />;
 }

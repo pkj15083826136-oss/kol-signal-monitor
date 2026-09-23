@@ -85,6 +85,12 @@ export function parseOkxCandles(payload: unknown): Candle[] {
   return [...rows.values()].sort((a, b) => a.time - b.time);
 }
 
+export function parseOkxTokenSearch(payload: unknown): JsonRecord[] {
+  const root = record(payload);
+  if (String(root.code) !== "0" || !Array.isArray(root.data)) return [];
+  return root.data.map(record).filter((row) => Object.keys(row).length > 0);
+}
+
 type ClientOptions = { fetcher?: typeof fetch; now?: () => number; sleep?: (ms: number) => Promise<void>; db?: D1Database; task?: string };
 type Cached = { expiresAt: number; staleUntil: number; value: unknown };
 
@@ -167,6 +173,13 @@ export class OkxMarketClient {
     const body = JSON.stringify(normalized.map(({ chainIndex, tokenContractAddress }) => ({ chainIndex, tokenContractAddress })));
     const cacheKey = `price:${normalized.map((token) => `${token.chainIndex}:${token.tokenContractAddress}`).join(",")}`;
     return this.request(cacheKey, "POST", "/api/v6/dex/market/price-info", body, 60_000, (payload) => parseOkxPriceInfo(payload, normalized), { tier: "premium", endpoint: "/api/v6/dex/market/price-info", tokenCount: normalized.length });
+  }
+
+  tokenSearch(chain: SupportedMarketChain, address: string) {
+    const normalized = cacheAddress(chain, address);
+    const query = new URLSearchParams({ chains: OKX_CHAIN_INDEX[chain], search: normalized, limit: "10" });
+    const path = `/api/v6/dex/market/token/search?${query.toString()}`;
+    return this.request(`token-search:${chain}:${normalized}`, "GET", path, "", 6 * 60 * 60_000, parseOkxTokenSearch, { tier: "basic", endpoint: "/api/v6/dex/market/token/search", chain, address: normalized, tokenCount: 1 });
   }
 
   candles(chain: SupportedMarketChain, address: string, interval: KlineInterval, limit: number) {

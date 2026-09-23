@@ -134,6 +134,13 @@
       "when": 1790164142715,
       "tag": "0018_serious_archangel",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1790183419048,
+      "tag": "0019_green_brother_voodoo",
+      "breakpoints": true
     }
   ]
 }

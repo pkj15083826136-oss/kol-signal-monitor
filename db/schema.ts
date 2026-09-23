@@ -133,6 +133,10 @@ export const collectorStatus = sqliteTable("collector_status", {
   capturedCount: integer("captured_count").notNull().default(0),
   uploadedCount: integer("uploaded_count").notNull().default(0),
   dedupCount: integer("dedup_count").notNull().default(0),
+  uploadFailedCount: integer("upload_failed_count").notNull().default(0),
+  parseFailedCount: integer("parse_failed_count").notNull().default(0),
+  unsupportedCount: integer("unsupported_count").notNull().default(0),
+  invalidCount: integer("invalid_count").notNull().default(0),
   lastError: text("last_error"),
   updatedAt: text("updated_at").notNull(),
 });
@@ -258,6 +262,36 @@ export const radarSignalSources = sqliteTable("radar_signal_sources", {
   uniqueIndex("uidx_radar_sources_event").on(table.source, table.sourceEventId),
   index("idx_radar_sources_signal_time").on(table.radarSignalId, table.observedAt),
 ]);
+
+export const radarIngestEvents = sqliteTable("radar_ingest_events", {
+  id: integer("id").primaryKey({ autoIncrement: true }), source: text("source").notNull(), sourceEventId: text("source_event_id").notNull(),
+  radarSignalId: integer("radar_signal_id"), chain: text("chain"), tokenAddress: text("token_address"), outcome: text("outcome").notNull(), reason: text("reason"),
+  observedAt: text("observed_at").notNull(), createdAt: text("created_at").notNull(),
+}, (table) => [uniqueIndex("uidx_radar_ingest_event").on(table.source, table.sourceEventId), index("idx_radar_ingest_time").on(table.createdAt)]);
+
+export const dexRegistry = sqliteTable("dex_registry", {
+  chain: text("chain").notNull(), dexId: text("dex_id").notNull(), poolType: text("pool_type").notNull(), factoryAddress: text("factory_address").notNull(),
+  routerAddress: text("router_address").notNull(), quoteTokensJson: text("quote_tokens_json").notNull().default("[]"), status: text("status").notNull().default("VERIFIED"), updatedAt: text("updated_at").notNull(),
+}, (table) => [primaryKey({ columns: [table.chain, table.dexId, table.factoryAddress] })]);
+
+export const radarEnrichmentState = sqliteTable("radar_enrichment_state", {
+  radarSignalId: integer("radar_signal_id").primaryKey(), status: text("status").notNull().default("PENDING"), tradeDataStage: text("trade_data_stage").notNull().default("CANDIDATE_ONLY"),
+  avatarOriginalUrl: text("avatar_original_url"), avatarResolvedUrl: text("avatar_resolved_url"), avatarSource: text("avatar_source"), avatarCheckedAt: text("avatar_checked_at"), avatarStatus: text("avatar_status").notNull().default("PENDING"), avatarErrorCode: text("avatar_error_code"),
+  primaryPairAddress: text("primary_pair_address"), poolType: text("pool_type"), dexId: text("dex_id"), factoryAddress: text("factory_address"), routerAddress: text("router_address"), quoteToken: text("quote_token"),
+  pairStatus: text("pair_status").notNull().default("PENDING"), pairSource: text("pair_source"), pairCheckedAt: text("pair_checked_at"), pairBlockNumber: integer("pair_block_number"),
+  liquidityUsd: real("liquidity_usd"), liquiditySource: text("liquidity_source"), liquidityStatus: text("liquidity_status").notNull().default("PENDING"), liquidityCheckedAt: text("liquidity_checked_at"), dataConflict: integer("data_conflict").notNull().default(0),
+  uniqueBuyers24h: integer("unique_buyers_24h"), uniqueSellers24h: integer("unique_sellers_24h"), buyTx24h: integer("buy_tx_24h"), sellTx24h: integer("sell_tx_24h"), activitySource: text("activity_source"), activityStatus: text("activity_status").notNull().default("PENDING"), activityWindowStart: text("activity_window_start"), activityWindowEnd: text("activity_window_end"),
+  tokenCreatedAt: text("token_created_at"), tokenCreatedSource: text("token_created_source"), tokenCreatedStatus: text("token_created_status").notNull().default("PENDING"), poolCreatedAt: text("pool_created_at"), poolCreatedSource: text("pool_created_source"), poolCreatedStatus: text("pool_created_status").notNull().default("PENDING"), systemFirstSeenAt: text("system_first_seen_at").notNull(),
+  errorCode: text("error_code"), errorReason: text("error_reason"), retryCount: integer("retry_count").notNull().default(0), nextRetryAt: text("next_retry_at"), terminal: integer("terminal").notNull().default(0), updatedAt: text("updated_at").notNull(),
+}, (table) => [index("idx_radar_enrichment_retry").on(table.status, table.nextRetryAt)]);
+
+export const radarPoolCandidates = sqliteTable("radar_pool_candidates", {
+  id: integer("id").primaryKey({ autoIncrement: true }), radarSignalId: integer("radar_signal_id").notNull(), pairAddress: text("pair_address").notNull(), poolType: text("pool_type"), dexId: text("dex_id"), factoryAddress: text("factory_address"), routerAddress: text("router_address"), token0: text("token0"), token1: text("token1"), quoteToken: text("quote_token"), feeTier: integer("fee_tier"), liquidityUsd: real("liquidity_usd"), liquiditySource: text("liquidity_source"), source: text("source").notNull(), status: text("status").notNull(), blockNumber: integer("block_number"), checkedAt: text("checked_at").notNull(), errorCode: text("error_code"), errorReason: text("error_reason"),
+}, (table) => [uniqueIndex("uidx_radar_pool_candidate").on(table.radarSignalId, table.pairAddress), index("idx_radar_pool_signal").on(table.radarSignalId)]);
+
+export const radarReadonlyQuotes = sqliteTable("radar_readonly_quotes", {
+  id: integer("id").primaryKey({ autoIncrement: true }), radarSignalId: integer("radar_signal_id").notNull(), amountUsd: integer("amount_usd").notNull(), buyAmountOut: text("buy_amount_out"), sellAmountOutUsd: text("sell_amount_out_usd"), priceImpactBps: integer("price_impact_bps"), roundTripLossBps: integer("round_trip_loss_bps"), status: text("status").notNull(), errorCode: text("error_code"), quotedAt: text("quoted_at").notNull(), blockNumber: integer("block_number"),
+}, (table) => [uniqueIndex("uidx_radar_quote_band").on(table.radarSignalId, table.amountUsd)]);
 
 export const radarSignalSnapshots = sqliteTable("radar_signal_snapshots", {
   id: integer("id").primaryKey({ autoIncrement: true }),

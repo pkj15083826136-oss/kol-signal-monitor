@@ -30,6 +30,10 @@ const stats = {
   capturedCount: 0,
   uploadedCount: 0,
   dedupCount: 0,
+  uploadFailedCount: 0,
+  parseFailedCount: 0,
+  unsupportedCount: 0,
+  invalidCount: 0,
 };
 let stopping = false;
 let activeContext = null;
@@ -51,7 +55,7 @@ async function post(candidates = [], status = "healthy", error = "") {
       candidates,
     }),
   });
-  if (!response.ok) throw new Error(`采集接口返回 ${response.status}`);
+  if (!response.ok) { stats.uploadFailedCount += candidates.length || 1; throw new Error(`采集接口返回 ${response.status}`); }
   if (candidates.length) {
     stats.uploadedCount += candidates.length;
     stats.lastUploadAt = new Date().toISOString();
@@ -63,7 +67,8 @@ function chainOf(value) {
   if (chain.includes("sol")) return "sol";
   if (chain.includes("base")) return "base";
   if (chain.includes("robinhood")) return "robinhood";
-  return "bsc";
+  if (chain.includes("bsc") || chain.includes("bnb")) return "bsc";
+  return null;
 }
 
 function asNumber(value) {
@@ -84,7 +89,7 @@ function mapRows(payload) {
   const rows = Array.isArray(payload?.data) ? payload.data : [];
   const candidates = [];
   for (const row of rows) {
-    if (!row?.id) continue;
+    if (!row?.id) { stats.parseFailedCount += 1; continue; }
     const eventId = String(row.id);
     if (seen.has(eventId)) {
       stats.dedupCount += 1;
@@ -92,18 +97,19 @@ function mapRows(payload) {
     }
     seen.add(eventId);
     const tokenAddress = String(row.token || "").trim();
-    if (!tokenAddress) continue;
+    if (!tokenAddress) { stats.invalidCount += 1; continue; }
+    const chain = chainOf(row.chain); if (!chain) { stats.unsupportedCount += 1; continue; }
     stats.capturedCount += 1;
     candidates.push({
       source: "ave_smart_browser",
       sourceEventId: eventId,
-      chain: chainOf(row.chain),
+      chain,
       tokenAddress,
       pairAddress: typeof row.amm === "string" ? row.amm : null,
       name: String(row.token_name || row.symbol || "Unknown"),
       symbol: String(row.symbol || "—"),
       firstSeenAt: asIso(row.signal_time || row.first_signal_time || Date.now()),
-      poolCreatedAt: null,
+      poolCreatedAt: row.pair_create_time || row.pool_created_at ? asIso(row.pair_create_time || row.pool_created_at) : null,
       price: row.current_price_usd == null ? null : String(row.current_price_usd),
       marketCap: asNumber(row.mc_cur ?? row.mc),
       liquidity: null,
@@ -146,6 +152,14 @@ function mapRows(payload) {
         holders_cur: row.holders_cur,
         top10_ratio: row.top10_ratio,
         current_price_usd: row.current_price_usd,
+        logo: row.logo || row.token_logo || row.icon || null,
+        token_create_time: row.token_create_time || row.created_at || null,
+        pair_create_time: row.pair_create_time || row.pool_created_at || null,
+        liquidity: row.liquidity || row.liquidity_usd || null,
+        buyers_24h: row.buyers_24h || row.buyer_count_24h || null,
+        sellers_24h: row.sellers_24h || row.seller_count_24h || null,
+        buy_tx_24h: row.buy_tx_24h || row.buys_24h || null,
+        sell_tx_24h: row.sell_tx_24h || row.sells_24h || null,
       },
     });
   }

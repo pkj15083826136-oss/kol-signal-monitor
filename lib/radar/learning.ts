@@ -29,9 +29,11 @@ export function emptyLearningSummary(): LearningSummary {
 }
 
 export function collectorDisplayState(row: Record<string, unknown> | null, now = Date.now()) {
-  if (!row) return "BLOCKED_EXTERNAL_ENDPOINT";
-  if (row.login_status === "required") return "LOGIN_EXPIRED";
+  if (!row) return "NOT_STARTED";
+  if (["required", "expired"].includes(String(row.login_status))) return "LOGIN_REQUIRED";
   const heartbeat = row.last_heartbeat_at ? Date.parse(String(row.last_heartbeat_at)) : Number.NaN;
-  if (row.connection_status === "connected" && Number.isFinite(heartbeat) && now - heartbeat <= 5 * 60_000) return "CONNECTED";
-  return "BLOCKED_EXTERNAL_ENDPOINT";
+  if (!Number.isFinite(heartbeat) || now - heartbeat > 5 * 60_000) return "STALE";
+  if (["error", "failed", "disconnected"].includes(String(row.connection_status)) || row.last_error) return "COLLECTOR_ERROR";
+  if (row.connection_status === "connected") return row.websocket_status === "connected" ? "CONNECTED" : "IDLE";
+  return "IDLE";
 }
