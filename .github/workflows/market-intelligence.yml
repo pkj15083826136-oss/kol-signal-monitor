@@ -9,6 +9,7 @@ on:
     paths:
       - ".github/workflows/market-intelligence.yml"
       - "scripts/collect-exchange-events.mjs"
+      - "scripts/binance-spot-snapshot.mjs"
       - "scripts/collect-whale-alert.mjs"
       - "scripts/collect-upbit-announcements.mjs"
       - "scripts/run-exchange-loop.mjs"

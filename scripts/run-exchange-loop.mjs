@@ -1,3 +1,5 @@
+import { fetchBinanceSpotPairs } from "./binance-spot-snapshot.mjs";
+
 const site = String(process.env.SITE_URL || "").replace(/\/$/, "");
 const secret = process.env.MONITOR_SECRET || "";
 const duration = Number(process.env.COLLECTOR_DURATION_MS || 3_300_000);
@@ -14,10 +16,11 @@ while (Date.now() < deadline) {
   attempt++;
   const startedAt = Date.now();
   try {
+    const binanceSpotPairs = await fetchBinanceSpotPairs();
     const response = await fetch(`${site}/api/exchange-events/collect`, {
       method: "POST",
       headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
-      body: "{}",
+      body: JSON.stringify({ binanceSpotPairs }),
       signal: AbortSignal.timeout(180_000),
     });
     const text = await response.text();

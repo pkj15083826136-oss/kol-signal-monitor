@@ -5,7 +5,7 @@ export type ExchangeEventType = "first_spot_listing" | "spot_pair_add" | "contra
 export const EXCHANGE_LABELS: Record<Exchange, string> = { binance: "币安", coinbase: "Coinbase", upbit: "Upbit", okx: "OKX", bybit: "Bybit", kraken: "Kraken", bitget: "Bitget", gate: "Gate", mexc: "MEXC", htx: "HTX" };
 
 export const PAIR_SOURCES: Record<Exchange, { spot: string; contract?: string }> = {
-  binance: { spot: "https://api.binance.com/api/v3/exchangeInfo", contract: "https://fapi.binance.com/fapi/v1/exchangeInfo" },
+  binance: { spot: "https://data-api.binance.vision/api/v3/exchangeInfo?showPermissionSets=false", contract: "https://fapi.binance.com/fapi/v1/exchangeInfo" },
   coinbase: { spot: "https://api.exchange.coinbase.com/products" },
   upbit: { spot: "https://api.upbit.com/v1/market/all?is_details=true" },
   okx: { spot: "https://www.okx.com/api/v5/public/instruments?instType=SPOT", contract: "https://www.okx.com/api/v5/public/instruments?instType=SWAP" },
@@ -58,6 +58,29 @@ export function splitPair(pair: string) {
   return { base: normalized, quote: "" };
 }
 
+export function normalizeSuppliedPairs(values: unknown[]) {
+  return [...new Set(values.map((value) => String(value).trim().toUpperCase()).filter((pair) => pair.length >= 3 && pair.length <= 60 && !/[\s\u0000-\u001f]/u.test(pair)))].sort();
+}
+
+export function reconcilePairSnapshot(previous: string[], current: string[], pendingMissing: Record<string, number> = {}, minimumRatio = 0.7) {
+  const before = new Set(previous);
+  const after = new Set(current);
+  const ratio = previous.length ? current.length / previous.length : 1;
+  if (previous.length && ratio < minimumRatio) return { suspect: true, ratio, added: [] as string[], removed: [] as string[], snapshot: previous, pendingMissing };
+  const added = current.filter((pair) => !before.has(pair));
+  const removed: string[] = [];
+  const nextMissing: Record<string, number> = {};
+  for (const pair of previous) {
+    if (after.has(pair)) continue;
+    const count = (pendingMissing[pair] || 0) + 1;
+    if (count >= 2) removed.push(pair);
+    else nextMissing[pair] = count;
+  }
+  const removedSet = new Set(removed);
+  const snapshot = [...new Set([...previous.filter((pair) => !removedSet.has(pair)), ...current])].sort();
+  return { suspect: false, ratio, added, removed, snapshot, pendingMissing: nextMissing };
+}
+
 export function classifyAnnouncement(title: string): { eventType: ExchangeEventType; marketType: "spot" | "contract" | "activity" | "alpha" } | null {
   const t = title.toLowerCase();
   if (/(tick size|fee group|maintenance margin|adjust(?:ment|s)? (?:to |the )?(?:leverage|position)|staking products?|crypto loan|websocket)/.test(t)) return null;
@@ -74,8 +97,24 @@ export function classifyAnnouncement(title: string): { eventType: ExchangeEventT
   return null;
 }
 
+export function announcementTimeFromTitle(title: string, reference = new Date()) {
+  const named = title.match(/(?:published on\s+)?([A-Z][a-z]{2,8})\s+(\d{1,2})(?:,\s*(\d{4}))?(?:\s|$)/);
+  if (named) {
+    const year = Number(named[3] || reference.getUTCFullYear());
+    const parsed = new Date(`${named[1]} ${named[2]}, ${year} 00:00:00 UTC`);
+    if (Number.isFinite(parsed.getTime())) { if (!named[3] && parsed.getTime() > reference.getTime() + 7 * 86_400_000) parsed.setUTCFullYear(year - 1); return parsed.toISOString(); }
+  }
+  const numeric = title.match(/\b(\d{2})\/(\d{2})\s+(\d{2}):(\d{2})(?::(\d{2}))?\s*\(UTC\)/i);
+  if (numeric) {
+    const parsed = new Date(Date.UTC(reference.getUTCFullYear(), Number(numeric[1]) - 1, Number(numeric[2]), Number(numeric[3]), Number(numeric[4]), Number(numeric[5] || 0)));
+    if (parsed.getTime() > reference.getTime() + 7 * 86_400_000) parsed.setUTCFullYear(parsed.getUTCFullYear() - 1);
+    return parsed.toISOString();
+  }
+  return null;
+}
+
 export function extractAnnouncementLinks(html: string, baseUrl: string) {
-  const seen = new Set<string>(); const out: { id: string; title: string; url: string }[] = [];
+  const seen = new Set<string>(); const out: { id: string; title: string; url: string; announcedAt: string | null }[] = [];
   const decoded = html.replace(/\\u0026/g, "&").replace(/\\u003c/g, "<").replace(/\\u003e/g, ">").replace(/&amp;/g, "&").replace(/&quot;/g, '"');
   const re = /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi; let match: RegExpExecArray | null;
   while ((match = re.exec(decoded)) && out.length < 80) {
@@ -90,7 +129,7 @@ export function extractAnnouncementLinks(html: string, baseUrl: string) {
     if (host.includes("mexc.com") && !target.pathname.includes("/announcements/article/")) continue;
     if (host.includes("htx.com") && !/\/support\/\d+/.test(target.pathname)) continue;
     if (host.includes("upbit.com") && !(target.pathname.includes("/service_center/notice") && target.searchParams.has("id"))) continue;
-    const id = url.replace(/[?#].*$/, "").split("/").filter(Boolean).slice(-2).join(":"); if (seen.has(id)) continue; seen.add(id); out.push({ id, title, url });
+    const id = url.replace(/[?#].*$/, "").split("/").filter(Boolean).slice(-2).join(":"); if (seen.has(id)) continue; seen.add(id); out.push({ id, title, url, announcedAt: announcementTimeFromTitle(title) });
   }
   return out;
 }
@@ -150,7 +189,7 @@ export function eventPriority(type: ExchangeEventType, pairs: string[]) {
 
 export function shouldAlertAnnouncement(lastSuccessAt: string | null, announcementAt: string | null) {
   if (!lastSuccessAt) return false;
-  if (!announcementAt) return true;
+  if (!announcementAt) return false;
   const previous = Date.parse(lastSuccessAt); const announced = Date.parse(announcementAt);
   return !Number.isFinite(previous) || !Number.isFinite(announced) || announced > previous;
 }

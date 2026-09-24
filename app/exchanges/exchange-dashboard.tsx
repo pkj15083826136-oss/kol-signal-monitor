@@ -4,8 +4,8 @@ import Link from "next/link";
 import { Activity, ArrowLeft, ExternalLink, RefreshCw, Search } from "lucide-react";
 import { EXCHANGE_LABELS, type Exchange } from "@/lib/exchange-intelligence";
 
-type ExchangeEvent = { id: number; exchange: Exchange; event_type: string; market_type: string; title: string; pairs?: string[]; source_url: string; status: string; revision: number; announcement_at?: string | null; discovered_at?: string | null; expected_effective_at?: string | null; actual_effective_at?: string | null };
-type ExchangeHealth = { exchange: Exchange; source: string; status: string; last_error?: string | null };
+export type ExchangeEvent = { id: number; exchange: Exchange; event_type: string; market_type: string; title: string; pairs?: string[]; source_url: string; status: string; revision: number; announcement_at?: string | null; discovered_at?: string | null; expected_effective_at?: string | null; actual_effective_at?: string | null };
+export type ExchangeHealth = { exchange: Exchange; source: string; status: string; last_error?: string | null };
 export type ExchangePayload = { events: ExchangeEvent[]; health: ExchangeHealth[]; fetchedAt: string };
 const typeLabels: Record<string, string> = { first_spot_listing: "首次现货上币", spot_pair_add: "新增现货交易对", contract_open: "合约开通", alpha_add: "币安 Alpha 纳入", alpha_remove: "币安 Alpha 移除", launch_activity: "Launchpad／Launchpool／打新", token_delisting: "下架币种", pair_delisting: "下架指定交易对" };
 const fmt = (value: unknown) => value ? new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(String(value))) : "—";

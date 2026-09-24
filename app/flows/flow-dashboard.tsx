@@ -2,9 +2,9 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowDownToLine, ArrowLeft, ArrowUpFromLine, Database, RefreshCw, ShieldAlert } from "lucide-react";
-type FlowEvent = { id: number; direction: string; classification: string; amount_usd: number | null; amount: string | number; symbol: string; price_usd: number | null; price_at: string | null; from_address: string | null; to_address: string | null; from_entity: string | null; to_entity: string | null; tx_hash: string; chain: string; from_label_source: string | null; to_label_source: string | null; label_confidence: string; chain_occurred_at: string; discovered_at: string };
-type FlowAggregate = { inflow_usd: number | null; outflow_usd: number | null };
-type FlowHealth = { status: string; last_error?: string | null };
+export type FlowEvent = { id: number; direction: string; classification: string; amount_usd: number | null; amount: string | number; symbol: string; price_usd: number | null; price_at: string | null; from_address: string | null; to_address: string | null; from_entity: string | null; to_entity: string | null; tx_hash: string; chain: string; from_label_source: string | null; to_label_source: string | null; label_confidence: string; chain_occurred_at: string; discovered_at: string };
+export type FlowAggregate = { inflow_usd: number | null; outflow_usd: number | null };
+export type FlowHealth = { status: string; last_error?: string | null };
 export type FlowPayload = { events: FlowEvent[]; aggregates: FlowAggregate[]; health: FlowHealth[]; window: string; minimumUsd: number; signConvention: string; institutionTradeCoverage: string; fetchedAt: string };
 const money = (v: unknown) => Number.isFinite(Number(v)) ? new Intl.NumberFormat("zh-CN", { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 2 }).format(Number(v)) : "估值待核实";
 const fmt = (v: unknown) => v ? new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(new Date(String(v))) : "—";
