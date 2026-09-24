@@ -126,6 +126,8 @@ describe("radar market enrichment and source status", () => {
     expect(supervisor).toContain("ave-supervisor.lock");
     expect(supervisor).toContain("ave-supervisor.log");
     expect(supervisor).toContain("Stop-StaleCollectorBrowsers");
+    expect(supervisor).toContain("ProtectedData]::Unprotect");
+    expect(supervisor).not.toContain("ConvertTo-SecureString");
     expect(supervisor).toContain("Start-Process");
     expect(supervisor).toContain("-WindowStyle Hidden");
     expect(supervisor).not.toContain("-NoNewWindow");
@@ -134,5 +136,8 @@ describe("radar market enrichment and source status", () => {
     expect(installer).toContain("Get-Command node");
     expect(installer).toContain("-NodePath");
     expect(installer).toContain("-StateRoot");
+    expect(installer).toContain("ave-task.log");
+    expect(installer).toContain("CurrentVersion\\Run");
+    expect(installer).toContain("KOLSignalMonitorAveSmart");
   });
 });

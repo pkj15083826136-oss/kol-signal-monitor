@@ -29,8 +29,13 @@ try {
   if (-not (Test-Path -LiteralPath $secretFile)) {
     throw "Collector credential is not configured. Run the interactive launcher once."
   }
-  $secureSecret = (Get-Content -Raw -LiteralPath $secretFile).Trim() | ConvertTo-SecureString
-  $plainSecret = [System.Net.NetworkCredential]::new('', $secureSecret).Password
+  $encodedSecret = (Get-Content -Raw -LiteralPath $secretFile).Trim()
+  if ($encodedSecret -notmatch '^[0-9a-fA-F]+$' -or $encodedSecret.Length % 2 -ne 0) { throw "The local collector credential has an invalid format." }
+  Add-Type -AssemblyName System.Security
+  $encryptedBytes = [byte[]]::new($encodedSecret.Length / 2)
+  for ($index = 0; $index -lt $encryptedBytes.Length; $index++) { $encryptedBytes[$index] = [Convert]::ToByte($encodedSecret.Substring($index * 2, 2), 16) }
+  $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($encryptedBytes, $null, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)
+  $plainSecret = [System.Text.Encoding]::Unicode.GetString($plainBytes)
   if ([string]::IsNullOrWhiteSpace($plainSecret)) { throw "The local collector credential is empty." }
   $env:AVE_COLLECTOR_SITE_URL = $siteUrl
   $env:AVE_COLLECTOR_SECRET = $plainSecret
@@ -49,11 +54,15 @@ try {
     if ($process.ExitCode -eq 0) { break }
     Start-Sleep -Seconds 10
   }
+} catch {
+  Write-SupervisorLog "supervisor_error type=$($_.Exception.GetType().Name) message=$($_.Exception.Message.Replace("`r", " ").Replace("`n", " ").Substring(0, [Math]::Min(240, $_.Exception.Message.Length)))"
+  throw
 } finally {
   Write-SupervisorLog "supervisor_stopped pid=$PID"
   Remove-Item Env:\AVE_COLLECTOR_SECRET -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $supervisorPidFile -Force -ErrorAction SilentlyContinue
   $supervisorLock.Dispose()
   $plainSecret = $null
-  $secureSecret = $null
+  if ($plainBytes) { [Array]::Clear($plainBytes, 0, $plainBytes.Length) }
+  if ($encryptedBytes) { [Array]::Clear($encryptedBytes, 0, $encryptedBytes.Length) }
 }
