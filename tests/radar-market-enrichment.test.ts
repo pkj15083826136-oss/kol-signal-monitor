@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { collectorDisplayState } from "@/lib/radar/learning";
-import { chooseAvatar, dexRegistryFor, extractActivity, extractPoolCandidates, extractTokenCreatedAt, fieldState, leadTimingFromScore, marketConflict, normalizePropagationStage, safeAvatarUrl, selectPrimaryPool, tradeDataStage, validAvatarContentType } from "@/lib/radar/enrichment";
+import { chooseAvatar, dexRegistryFor, extractActivity, extractAveSignalAvatar, extractPoolCandidates, extractTokenCreatedAt, fieldState, leadTimingFromScore, marketConflict, normalizePropagationStage, safeAvatarUrl, selectPrimaryPool, tradeDataStage, validAvatarContentType } from "@/lib/radar/enrichment";
 import { publicCollectorStatus, publicEnrichmentStatus } from "@/lib/radar/public-status";
 import { parseOkxTokenSearch } from "@/lib/providers/okx";
 
@@ -109,6 +109,8 @@ describe("radar market enrichment and source status", () => {
     expect(collector).toContain("30_000");
     expect(collector).toContain("timeout: 45_000");
     expect(ingest).toContain("persistAveSignalAvatar");
+    expect(ingest).toContain("backfillAveSignalAvatars");
+    expect(extractAveSignalAvatar({ logo: "prod_ipfs/m/v1/bafkreig3mgijtjpspbtsc4nxibth7bmrdbmzvqphzneql4tnuoj3qptc4i" })).toBe("https://www.iconaves.com/prod_ipfs/m/v1/bafkreig3mgijtjpspbtsc4nxibth7bmrdbmzvqphzneql4tnuoj3qptc4i");
   });
 
   it("opens a GMGN provider cooldown after rate limiting or a temporary IP ban", () => {

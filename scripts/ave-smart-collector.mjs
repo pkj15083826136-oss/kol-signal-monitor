@@ -136,6 +136,13 @@ function asIso(value) {
   return Number.isFinite(date.getTime()) ? date.toISOString() : new Date().toISOString();
 }
 
+function aveAvatarUrl(row) {
+  const raw = row.logo || row.token_logo || row.token_icon || row.icon || row.image || row.avatar || null;
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  if (/^prod_ipfs\/m\/v1\/[a-z0-9]+$/i.test(raw.trim())) return `https://www.iconaves.com/${raw.trim()}`;
+  return /^https:\/\//i.test(raw.trim()) ? raw.trim() : null;
+}
+
 function mapRows(payload) {
   const rows = Array.isArray(payload?.data) ? payload.data : [];
   const candidates = [];
@@ -189,7 +196,7 @@ function mapRows(payload) {
       sourceDescriptionAt: asIso(row.signal_time || row.first_signal_time || Date.now()),
       sourceDescriptionSource: "ave_smart_browser",
       knownProjectAccount: typeof row.twitter === "string" ? row.twitter : null,
-      avatar_url: row.logo || row.token_logo || row.token_icon || row.icon || row.image || row.avatar || null,
+      avatar_url: aveAvatarUrl(row),
       rawSnapshot: {
         id: row.id,
         token: row.token,
@@ -204,7 +211,8 @@ function mapRows(payload) {
         holders_cur: row.holders_cur,
         top10_ratio: row.top10_ratio,
         current_price_usd: row.current_price_usd,
-        avatar_url: row.logo || row.token_logo || row.token_icon || row.icon || row.image || row.avatar || null,
+        avatar_url: aveAvatarUrl(row),
+        avatar_path: row.logo || row.token_logo || row.token_icon || row.icon || row.image || row.avatar || null,
         logo: row.logo || row.token_logo || row.token_icon || row.icon || row.image || row.avatar || null,
         token_create_time: row.token_create_time || row.created_at || null,
         pair_create_time: row.pair_create_time || row.pool_created_at || null,
@@ -233,6 +241,7 @@ async function runBrowser() {
   let reloadInFlight = false;
   let reconnectAttempt = 0;
   let nextReconnectAt = 0;
+  let avatarAssetOriginLogged = false;
   stats.connectionStatus = "connected";
 
   page.on("websocket", (socket) => {
@@ -249,6 +258,14 @@ async function runBrowser() {
   });
   page.on("requestfailed", (request) => {
     if (request.resourceType() === "websocket") stats.websocketStatus = "disconnected";
+  });
+  page.on("request", (request) => {
+    if (avatarAssetOriginLogged || request.resourceType() !== "image" || !request.url().includes("/prod_ipfs/")) return;
+    try {
+      const parsed = new URL(request.url());
+      avatarAssetOriginLogged = true;
+      void log("ave_avatar_asset_origin", { origin: parsed.origin, pathPrefix: "/prod_ipfs/" });
+    } catch { /* malformed image URL is ignored */ }
   });
   page.on("crash", () => { void log("page_crash"); void context.close().catch(() => {}); });
   page.on("close", () => { if (!stopping) { void log("page_closed"); void context.close().catch(() => {}); } });

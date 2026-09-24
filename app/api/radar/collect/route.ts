@@ -3,7 +3,7 @@ import { isMonitorAuthorized } from "@/lib/monitor-auth";
 import { reviewRadarCandidate } from "@/lib/radar/reviewer";
 import { radarAiFallback } from "@/lib/radar/ai";
 import { claimRadarNarrativeTask, loadTerminalRadarNarrative, normalizeRadarCandidate, persistRadarCandidate } from "@/lib/radar/intake";
-import { enrichRadarCandidate, persistAveSignalAvatar } from "@/lib/radar/enrichment";
+import { backfillAveSignalAvatars, enrichRadarCandidate, persistAveSignalAvatar } from "@/lib/radar/enrichment";
 
 export const dynamic = "force-dynamic";
 function text(value: unknown, fallback = "", max = 300) { return String(value ?? fallback).slice(0, max); }
@@ -30,7 +30,8 @@ export async function POST(request: Request) {
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(source) DO UPDATE SET instance_id=excluded.instance_id,connection_status=excluded.connection_status,login_status=excluded.login_status,websocket_status=excluded.websocket_status,last_heartbeat_at=excluded.last_heartbeat_at,last_event_at=COALESCE(excluded.last_event_at,collector_status.last_event_at),last_upload_at=COALESCE(excluded.last_upload_at,collector_status.last_upload_at),captured_count=MAX(collector_status.captured_count,excluded.captured_count),uploaded_count=MAX(collector_status.uploaded_count,excluded.uploaded_count),dedup_count=MAX(collector_status.dedup_count,excluded.dedup_count),upload_failed_count=MAX(collector_status.upload_failed_count,excluded.upload_failed_count),parse_failed_count=MAX(collector_status.parse_failed_count,excluded.parse_failed_count),unsupported_count=MAX(collector_status.unsupported_count,excluded.unsupported_count),invalid_count=MAX(collector_status.invalid_count,excluded.invalid_count),last_error=excluded.last_error,updated_at=excluded.updated_at`)
     .bind(sourceName, text(collector.instanceId, "unknown", 100), text(collector.connectionStatus, "unknown", 40), text(collector.loginStatus, "unknown", 40), text(collector.websocketStatus, "unknown", 40), now, isoOrNull(collector.lastEventAt), candidates.length ? now : isoOrNull(collector.lastUploadAt), count(collector.capturedCount), count(collector.uploadedCount) + candidates.length, count(collector.dedupCount), count(collector.uploadFailedCount), count(collector.parseFailedCount) + parsedCandidates.filter((item) => !item.candidate).length, count(collector.unsupportedCount), count(collector.invalidCount), status === "healthy" ? null : text(payload.error || status), now).run();
   for (const item of parsedCandidates.filter((entry) => !entry.candidate)) { const raw = item.raw && typeof item.raw === "object" ? item.raw as Record<string, unknown> : {}; await recordIngest(env.DB, { source: text(raw.source, sourceName, 80), eventId: text(raw.sourceEventId, `invalid:${now}:${item.index}`, 200), chain: text(raw.chain, "", 30), token: text(raw.tokenAddress, "", 150), outcome: "PARSE_FAILED", reason: "缺少受支持链、Token地址或稳定来源事件ID", observedAt: isoOrNull(raw.firstSeenAt) || now }, now); }
-  if (!candidates.length) return Response.json({ ok: true, heartbeat: true, count: 0 });
+  const avatarBackfilled = sourceName === "ave_smart_browser" ? await backfillAveSignalAvatars(env.DB, 20, now).catch(() => 0) : 0;
+  if (!candidates.length) return Response.json({ ok: true, heartbeat: true, count: 0, avatarBackfilled });
   const results = [];
   for (const candidate of candidates) {
     const existing = await env.DB.prepare("SELECT id FROM radar_signals WHERE chain=? AND token_address=?").bind(candidate.chain, candidate.chain === "sol" ? candidate.tokenAddress : candidate.tokenAddress.toLowerCase()).first<{ id: number }>();
@@ -56,5 +57,5 @@ export async function POST(request: Request) {
     const review = await reviewRadarCandidate(frozenCandidate, typeof source.XAI_API_KEY === "string" ? source.XAI_API_KEY : undefined, fetch, { entryPoint: "radar_first_discovery", claimFingerprint: claim.fingerprint });
     results.push({ ...(await persistRadarCandidate(env.DB, candidate, review)), narrativeDeduplicated: false, enrichment });
   }
-  return Response.json({ ok: true, count: results.length, results });
+  return Response.json({ ok: true, count: results.length, avatarBackfilled, results });
 }

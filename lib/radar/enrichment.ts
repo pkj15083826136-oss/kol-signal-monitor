@@ -29,7 +29,7 @@ export const DEX_REGISTRY: DexRegistryEntry[] = [
   { chain: "bsc", dexId: "pancakev3", factoryAddress: "0x0bfbcf9fa4f9c56b0f40a671ad40e0805a091865", routerAddress: "0x1b81d678ffb9c0263b24a97847620c99d213eb14", poolType: "V3", quoteTokens: [...BSC_QUOTES], feeTiers: [100, 500, 2500, 10000], verifiedSource: "https://github.com/pancakeswap/pancake-v3-contracts/blob/main/deployments/bscMainnet.json", enabled: true },
 ];
 
-const AVATAR_HOSTS = ["ave.ai", "www.ave.ai", "gmgn.ai", "gmgn.app", "static.okx.com", "www.okx.com", "ipfs.io", "cloudflare-ipfs.com", "token-icons.s3.amazonaws.com"];
+const AVATAR_HOSTS = ["ave.ai", "www.ave.ai", "iconaves.com", "www.iconaves.com", "gmgn.ai", "gmgn.app", "static.okx.com", "www.okx.com", "ipfs.io", "cloudflare-ipfs.com", "token-icons.s3.amazonaws.com"];
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 function text(value: unknown) { return typeof value === "string" ? value.trim() : ""; }
 function positive(value: unknown): number | null { if (value === null || value === undefined || value === "") return null; const parsed = Number(value); return Number.isFinite(parsed) && parsed >= 0 ? parsed : null; }
@@ -63,8 +63,13 @@ function firstDeepString(value: unknown, keys: string[]) { let found = ""; walk(
 function firstDeepNumber(value: unknown, keys: string[]) { let found: number | null = null; walk(value, (row) => { if (found !== null) return; for (const key of keys) { const candidate = positive(row[key]); if (candidate !== null) { found = candidate; break; } } }); return found; }
 
 export function extractProviderAvatar(payload: unknown) { return safeAvatarUrl(firstDeepString(payload, ["avatar_url", "avatar", "logo", "logo_url", "logoUrl", "token_logo", "token_icon", "tokenLogoUrl", "icon", "icon_url", "image", "image_url"])); }
+export function extractAveSignalAvatar(payload: unknown) {
+  const raw = firstDeepString(payload, ["avatar_url", "logo", "token_logo", "token_icon", "icon", "image", "avatar"]);
+  if (/^prod_ipfs\/m\/v1\/[a-z0-9]+$/i.test(raw)) return safeAvatarUrl(`https://www.iconaves.com/${raw}`);
+  return safeAvatarUrl(raw);
+}
 export function chooseAvatar(input: { ave?: unknown; gmgn?: unknown; okx?: unknown; chain: string; address: string }, now = new Date().toISOString()) {
-  const candidates = [["ave", extractProviderAvatar(input.ave)], ["gmgn", extractProviderAvatar(input.gmgn)], ["okx", extractProviderAvatar(input.okx)]] as const;
+  const candidates = [["ave", extractAveSignalAvatar(input.ave)], ["gmgn", extractProviderAvatar(input.gmgn)], ["okx", extractProviderAvatar(input.okx)]] as const;
   const selected = candidates.find(([, url]) => Boolean(url)); const original = selected?.[1] || null;
   return { avatar_original_url: original, avatar_resolved_url: proxiedAvatarUrl(original, input.chain, input.address), avatar_source: selected?.[0] || "identicon", avatar_checked_at: now, avatar_status: original ? "VERIFIED" : "FALLBACK_IDENTICON", avatar_error_code: original ? null : "AVATAR_NOT_RETURNED" };
 }
@@ -80,6 +85,28 @@ export async function persistAveSignalAvatar(db: D1Database, signalId: number, c
       avatar_source='AVE_SIGNAL',avatar_checked_at=excluded.avatar_checked_at,avatar_status='VERIFIED',avatar_error_code=NULL,updated_at=excluded.updated_at`)
     .bind(signalId, avatar.avatar_original_url, avatar.avatar_resolved_url, now, candidate.firstSeenAt, now).run();
   return { saved: true, source: "AVE_SIGNAL" };
+}
+
+export async function backfillAveSignalAvatars(db: D1Database, limit = 20, now = new Date().toISOString()) {
+  const rows = await db.prepare(`SELECT rss.radar_signal_id,rs.chain,rs.token_address,rs.first_seen_at,rss.raw_snapshot_json
+    FROM radar_signal_sources rss JOIN radar_signals rs ON rs.id=rss.radar_signal_id
+    LEFT JOIN radar_enrichment_state e ON e.radar_signal_id=rss.radar_signal_id
+    WHERE rss.source='ave_smart_browser' AND (rss.raw_snapshot_json LIKE '%"avatar_url"%' OR rss.raw_snapshot_json LIKE '%"logo"%')
+      AND (e.avatar_source IS NULL OR e.avatar_source!='AVE_SIGNAL')
+    ORDER BY rss.observed_at DESC LIMIT ?`).bind(Math.max(1, Math.min(50, limit))).all<Record<string, unknown>>();
+  let saved = 0;
+  for (const row of rows.results || []) {
+    let rawSnapshot: unknown = null;
+    try { rawSnapshot = JSON.parse(String(row.raw_snapshot_json || "{}")); } catch { continue; }
+    const avatar = chooseAvatar({ ave: rawSnapshot, chain: String(row.chain), address: String(row.token_address) }, now);
+    if (avatar.avatar_source !== "ave" || !avatar.avatar_original_url) continue;
+    await db.prepare(`INSERT INTO radar_enrichment_state (radar_signal_id,status,trade_data_stage,avatar_original_url,avatar_resolved_url,avatar_source,avatar_checked_at,avatar_status,avatar_error_code,system_first_seen_at,updated_at)
+      VALUES (?,'PENDING','PAIR_DISCOVERY_PENDING',?,?,'AVE_SIGNAL',?,'VERIFIED',NULL,?,?)
+      ON CONFLICT(radar_signal_id) DO UPDATE SET avatar_original_url=excluded.avatar_original_url,avatar_resolved_url=excluded.avatar_resolved_url,avatar_source='AVE_SIGNAL',avatar_checked_at=excluded.avatar_checked_at,avatar_status='VERIFIED',avatar_error_code=NULL,updated_at=excluded.updated_at`)
+      .bind(Number(row.radar_signal_id), avatar.avatar_original_url, avatar.avatar_resolved_url, now, String(row.first_seen_at || now), now).run();
+    saved += 1;
+  }
+  return saved;
 }
 
 export function normalizePropagationStage(value: unknown, narrativeStatus = "COMPLETED", evidenceCount = 0): PropagationStage | "ANALYSIS_FAILED" | "ANALYZING" {
