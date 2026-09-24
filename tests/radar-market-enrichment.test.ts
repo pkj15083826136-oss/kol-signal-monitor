@@ -131,13 +131,13 @@ describe("radar market enrichment and source status", () => {
     expect(supervisor).toContain("Start-Process");
     expect(supervisor).toContain("-WindowStyle Hidden");
     expect(supervisor).not.toContain("-NoNewWindow");
-    expect(installer).toContain("Register-ScheduledTask");
-    expect(installer).toContain("AtLogOn");
     expect(installer).toContain("Get-Command node");
     expect(installer).toContain("-NodePath");
     expect(installer).toContain("-StateRoot");
-    expect(installer).toContain("ave-task.log");
+    expect(installer).toContain("ave-task-launcher.ps1");
+    expect(installer).toContain("-Encoding Unicode");
     expect(installer).toContain("CurrentVersion\\Run");
     expect(installer).toContain("KOLSignalMonitorAveSmart");
+    expect(installer).toContain("Unregister-ScheduledTask");
   });
 });
