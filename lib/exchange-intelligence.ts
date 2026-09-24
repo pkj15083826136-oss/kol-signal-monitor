@@ -64,10 +64,11 @@ export function classifyAnnouncement(title: string): { eventType: ExchangeEventT
   if (/alpha/.test(t) && /(remove|delist|移除)/.test(t)) return { eventType: "alpha_remove", marketType: "alpha" };
   if (/alpha/.test(t)) return { eventType: "alpha_add", marketType: "alpha" };
   if (/(launchpad|launchpool|jumpstart|kickstarter|token sale|打新)/.test(t)) return { eventType: "launch_activity", marketType: "activity" };
-  if (/(perpetual|futures|contract|swap)/.test(t) && !/(delist|remove)/.test(t)) return { eventType: "contract_open", marketType: "contract" };
+  if (/(perpetual|futures|contract|swap)/.test(t) && /(launch|list|add|open|introduc|거래지원)/.test(t) && !/(delist|remove)/.test(t)) return { eventType: "contract_open", marketType: "contract" };
   if (/(delist|remov(e|al)|terminate|거래지원 종료)/.test(t)) return { eventType: /(pair|market|마켓|\/usdt|usdt)/.test(t) ? "pair_delisting" : "token_delisting", marketType: /(perpetual|futures|contract|swap)/.test(t) ? "contract" : "spot" };
   if (/(pair|market|마켓 추가)/.test(t)) return { eventType: "spot_pair_add", marketType: "spot" };
-  return { eventType: "first_spot_listing", marketType: "spot" };
+  if (/(will list|to list|new listing|trading support|상장|거래지원)/.test(t)) return { eventType: "first_spot_listing", marketType: "spot" };
+  return null;
 }
 
 export function extractAnnouncementLinks(html: string, baseUrl: string) {
