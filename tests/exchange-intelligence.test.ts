@@ -1,0 +1,12 @@
+import { describe,expect,it } from "vitest";
+import { classifyAnnouncement,eventPriority,extractAnnouncementLinks,extractBinanceAnnouncements,normalizePairs,splitPair } from "@/lib/exchange-intelligence";
+describe("exchange intelligence boundaries",()=>{
+  it("does not turn a pair removal into a token-wide delisting",()=>{expect(classifyAnnouncement("Notice of Removal of Spot Trading Pairs - ABC/USDT" )?.eventType).toBe("pair_delisting");expect(classifyAnnouncement("Kraken will delist ABC token")?.eventType).toBe("token_delisting")});
+  it("recognizes independent market and activity events",()=>{expect(classifyAnnouncement("Binance Futures Will Launch ABCUSDT Perpetual Contract")?.eventType).toBe("contract_open");expect(classifyAnnouncement("Introducing ABC on Binance Launchpool")?.eventType).toBe("launch_activity");expect(classifyAnnouncement("Binance Alpha Will Remove ABC")?.eventType).toBe("alpha_remove")});
+  it("makes USDT pair delisting high priority",()=>{expect(eventPriority("pair_delisting",["ABC-USDT"])).toBe("high");expect(eventPriority("pair_delisting",["ABC-EUR"])).toBe("normal")});
+  it("normalizes official pair payloads",()=>{expect(normalizePairs("binance","spot",{symbols:[{symbol:"BTCUSDT",status:"TRADING"}]})).toEqual(["BTCUSDT"]);expect(normalizePairs("coinbase","spot",[{id:"BTC-USD",status:"online"}])).toEqual(["BTC-USD"]);expect(normalizePairs("upbit","spot",[{market:"KRW-BTC"}])).toEqual(["KRW-BTC"]);expect(normalizePairs("okx","contract",{data:[{instId:"BTC-USDT-SWAP",state:"live"}]})).toEqual(["BTC-USDT-SWAP"])});
+  it("extracts official links and ignores unrelated navigation",()=>{const rows=extractAnnouncementLinks('<a href="/help/a">OKX to list ABC/USDT for spot trading</a><a href="/fees">Fees</a>',"https://www.okx.com/help");expect(rows).toHaveLength(1);expect(rows[0].url).toContain("/help/a")});
+  it("keeps only article URLs on dynamic announcement pages",()=>{expect(extractAnnouncementLinks('<a href="/announcements/tag/futures">Futures BTC</a><a href="/announcements/article/a">MEXC to list ABCUSDT Futures</a>',"https://www.mexc.com/support")).toHaveLength(1)});
+  it("reads Binance's official announcement JSON timestamp",()=>{const rows=extractBinanceAnnouncements({data:{catalogs:[{articles:[{id:1,code:"abc",title:"Binance Will List ABC with Seed Tag Applied",releaseDate:1700000000000}]}]}});expect(rows[0]).toMatchObject({id:"1",announcedAt:"2023-11-14T22:13:20.000Z"})});
+  it("splits concatenated stablecoin pairs",()=>expect(splitPair("ABCUSDT")).toEqual({base:"ABC",quote:"USDT"}));
+});

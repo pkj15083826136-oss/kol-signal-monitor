@@ -608,3 +608,38 @@ export const xaiRequestUsage = sqliteTable("xai_request_usage", {
   index("idx_xai_request_usage_task_time").on(table.taskType, table.createdAt),
   index("idx_xai_request_usage_fetch_time").on(table.fetchStatus, table.createdAt),
 ]);
+
+// Exchange intelligence and large-fund-flow monitoring are deliberately isolated
+// from KOL/radar admission data. They have their own identities, cursors, health
+// rows and delivery queues.
+export const exchangeEvents = sqliteTable("exchange_events", {
+  id: integer("id").primaryKey({ autoIncrement: true }), eventKey: text("event_key").notNull(), exchange: text("exchange").notNull(), eventType: text("event_type").notNull(), marketType: text("market_type").notNull().default("unknown"), title: text("title").notNull(), assetsJson: text("assets_json").notNull().default("[]"), pairsJson: text("pairs_json").notNull().default("[]"), conditions: text("conditions"), announcementId: text("announcement_id"), sourceName: text("source_name").notNull(), sourceUrl: text("source_url").notNull(), sourceKind: text("source_kind").notNull(), announcementAt: text("announcement_at"), discoveredAt: text("discovered_at").notNull(), expectedEffectiveAt: text("expected_effective_at"), actualEffectiveAt: text("actual_effective_at"), activityStartAt: text("activity_start_at"), activityEndAt: text("activity_end_at"), status: text("status").notNull().default("announced"), priority: text("priority").notNull().default("normal"), contentHash: text("content_hash").notNull(), revision: integer("revision").notNull().default(1), updatedAt: text("updated_at").notNull(),
+}, (table) => [uniqueIndex("uidx_exchange_events_key").on(table.eventKey), index("idx_exchange_events_time").on(table.discoveredAt), index("idx_exchange_events_filter").on(table.exchange, table.eventType, table.marketType, table.status)]);
+
+export const exchangeEventRevisions = sqliteTable("exchange_event_revisions", {
+  id: integer("id").primaryKey({ autoIncrement: true }), eventId: integer("event_id").notNull(), revision: integer("revision").notNull(), contentHash: text("content_hash").notNull(), payloadJson: text("payload_json").notNull(), recordedAt: text("recorded_at").notNull(),
+}, (table) => [uniqueIndex("uidx_exchange_revision").on(table.eventId, table.revision)]);
+
+export const exchangePairSnapshots = sqliteTable("exchange_pair_snapshots", {
+  exchange: text("exchange").notNull(), marketType: text("market_type").notNull(), pairsJson: text("pairs_json").notNull(), contentHash: text("content_hash").notNull(), initializedAt: text("initialized_at").notNull(), capturedAt: text("captured_at").notNull(), sourceUrl: text("source_url").notNull(),
+}, (table) => [primaryKey({ columns: [table.exchange, table.marketType] })]);
+
+export const exchangeCollectorState = sqliteTable("exchange_collector_state", {
+  source: text("source").primaryKey(), exchange: text("exchange").notNull(), status: text("status").notNull(), cursor: text("cursor"), lastAttemptAt: text("last_attempt_at").notNull(), lastSuccessAt: text("last_success_at"), lastEventAt: text("last_event_at"), lastLatencyMs: integer("last_latency_ms").notNull().default(0), consecutiveFailures: integer("consecutive_failures").notNull().default(0), nextRetryAt: text("next_retry_at"), lastError: text("last_error"), coverageJson: text("coverage_json").notNull().default("[]"),
+});
+
+export const exchangeAlertDeliveries = sqliteTable("exchange_alert_deliveries", {
+  eventId: integer("event_id").primaryKey(), deliveryKey: text("delivery_key").notNull(), status: text("status").notNull().default("pending"), attempts: integer("attempts").notNull().default(0), nextAttemptAt: text("next_attempt_at"), lastAttemptAt: text("last_attempt_at"), sentAt: text("sent_at"), lastError: text("last_error"), payloadHash: text("payload_hash").notNull(),
+}, (table) => [uniqueIndex("uidx_exchange_delivery_key").on(table.deliveryKey)]);
+
+export const fundFlowEvents = sqliteTable("fund_flow_events", {
+  id: integer("id").primaryKey({ autoIncrement: true }), eventKey: text("event_key").notNull(), provider: text("provider").notNull(), chain: text("chain").notNull(), symbol: text("symbol").notNull(), amount: text("amount").notNull(), amountUsd: real("amount_usd"), priceUsd: real("price_usd"), priceAt: text("price_at"), txHash: text("tx_hash").notNull(), fromAddress: text("from_address").notNull(), toAddress: text("to_address").notNull(), fromEntity: text("from_entity"), toEntity: text("to_entity"), fromLabelSource: text("from_label_source"), toLabelSource: text("to_label_source"), labelConfidence: text("label_confidence").notNull().default("unverified"), direction: text("direction").notNull(), classification: text("classification").notNull(), countsTowardNetflow: integer("counts_toward_netflow").notNull().default(0), institutionTradeSide: text("institution_trade_side"), bridgeName: text("bridge_name"), chainOccurredAt: text("chain_occurred_at").notNull(), discoveredAt: text("discovered_at").notNull(), rawFingerprint: text("raw_fingerprint").notNull(),
+}, (table) => [uniqueIndex("uidx_fund_flow_event_key").on(table.eventKey), index("idx_fund_flow_time").on(table.chainOccurredAt), index("idx_fund_flow_rollup").on(table.symbol, table.chain, table.direction, table.chainOccurredAt)]);
+
+export const fundFlowCollectorState = sqliteTable("fund_flow_collector_state", {
+  source: text("source").primaryKey(), status: text("status").notNull(), cursor: text("cursor"), connectionStatus: text("connection_status").notNull().default("not_started"), lastAttemptAt: text("last_attempt_at").notNull(), lastSuccessAt: text("last_success_at"), lastEventAt: text("last_event_at"), lastHeartbeatAt: text("last_heartbeat_at"), consecutiveFailures: integer("consecutive_failures").notNull().default(0), nextRetryAt: text("next_retry_at"), lastLatencyMs: integer("last_latency_ms").notNull().default(0), lastError: text("last_error"), coverageJson: text("coverage_json").notNull().default("[]"),
+});
+
+export const fundFlowAlertDeliveries = sqliteTable("fund_flow_alert_deliveries", {
+  eventId: integer("event_id").primaryKey(), deliveryKey: text("delivery_key").notNull(), status: text("status").notNull().default("pending"), attempts: integer("attempts").notNull().default(0), nextAttemptAt: text("next_attempt_at"), lastAttemptAt: text("last_attempt_at"), sentAt: text("sent_at"), lastError: text("last_error"), payloadHash: text("payload_hash").notNull(),
+}, (table) => [uniqueIndex("uidx_fund_flow_delivery_key").on(table.deliveryKey)]);

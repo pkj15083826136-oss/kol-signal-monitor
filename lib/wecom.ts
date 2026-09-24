@@ -20,6 +20,12 @@ export async function sendWeComAlert(signal: Record<string, unknown>, options: {
     `> 建仓账户：${names}`,
     signal.detailUrl ? `[查看完整信号与热门评论](${signal.detailUrl})` : "",
   ].filter(Boolean).join("\n");
+  return sendWeComMarkdown(content, options);
+}
+
+export async function sendWeComMarkdown(content: string, options: { webhook?: string; fetcher?: typeof fetch } = {}) {
+  const webhook = options.webhook ?? (env as unknown as Record<string, unknown>).WECOM_WEBHOOK_URL;
+  if (typeof webhook !== "string" || !webhook) throw new Error("WECOM_WEBHOOK_URL 未配置");
   let response: Response;
   try {
     response = await (options.fetcher ?? fetch)(webhook, {

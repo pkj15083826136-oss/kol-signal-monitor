@@ -1,0 +1,47 @@
+name: Exchange and fund-flow intelligence
+
+on:
+  schedule:
+    - cron: "3 * * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/market-intelligence.yml"
+      - "scripts/collect-exchange-events.mjs"
+      - "scripts/collect-whale-alert.mjs"
+      - "app/api/exchange-events/**"
+      - "app/api/fund-flows/**"
+
+concurrency:
+  group: market-intelligence
+  cancel-in-progress: true
+
+jobs:
+  exchange:
+    runs-on: ubuntu-latest
+    timeout-minutes: 58
+    steps:
+      - uses: actions/checkout@v4
+      - name: Minute exchange monitoring
+        env:
+          SITE_URL: ${{ secrets.SITE_URL }}
+          MONITOR_SECRET: ${{ secrets.MONITOR_SECRET }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 50); do
+            node scripts/collect-exchange-events.mjs || true
+            if [ "$attempt" -lt 50 ]; then sleep 60; fi
+          done
+  fund-flow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 58
+    steps:
+      - uses: actions/checkout@v4
+      - name: Real-time attributed fund flow
+        env:
+          SITE_URL: ${{ secrets.SITE_URL }}
+          MONITOR_SECRET: ${{ secrets.MONITOR_SECRET }}
+          WHALE_ALERT_API_KEY: ${{ secrets.WHALE_ALERT_API_KEY }}
+          COLLECTOR_DURATION_MS: "3000000"
+        run: node scripts/collect-whale-alert.mjs
