@@ -3,7 +3,7 @@ import { isMonitorAuthorized } from "@/lib/monitor-auth";
 import { reviewRadarCandidate } from "@/lib/radar/reviewer";
 import { radarAiFallback } from "@/lib/radar/ai";
 import { claimRadarNarrativeTask, loadTerminalRadarNarrative, normalizeRadarCandidate, persistRadarCandidate } from "@/lib/radar/intake";
-import { enrichRadarCandidate } from "@/lib/radar/enrichment";
+import { enrichRadarCandidate, persistAveSignalAvatar } from "@/lib/radar/enrichment";
 
 export const dynamic = "force-dynamic";
 function text(value: unknown, fallback = "", max = 300) { return String(value ?? fallback).slice(0, max); }
@@ -37,12 +37,14 @@ export async function POST(request: Request) {
     const stored = await loadTerminalRadarNarrative(env.DB, candidate);
     if (stored) {
       const persisted = await persistRadarCandidate(env.DB, candidate, stored); await recordIngest(env.DB, { source: candidate.source, eventId: candidate.sourceEventId, signalId: persisted.id, chain: candidate.chain, token: candidate.tokenAddress, outcome: existing ? "DUPLICATE" : "CREATED", observedAt: candidate.firstSeenAt }, now);
+      if (candidate.source === "ave_smart_browser") await persistAveSignalAvatar(env.DB, persisted.id, candidate, now);
       const enrichment = source.FEATURE_RADAR_READONLY_ENRICHMENT === "true" ? await enrichRadarCandidate(env.DB, persisted.id, candidate, source).catch((error) => ({ skipped: false, status: "RETRY_SCHEDULED", error: error instanceof Error ? error.message : "UNKNOWN" })) : { skipped: true, status: "DISABLED" };
       results.push({ ...persisted, narrativeDeduplicated: true, enrichment });
       continue;
     }
     const pending = radarAiFallback("PENDING", null, candidate.firstSeenAt);
     const reserved = await persistRadarCandidate(env.DB, candidate, pending);
+    if (candidate.source === "ave_smart_browser") await persistAveSignalAvatar(env.DB, reserved.id, candidate, now);
     await recordIngest(env.DB, { source: candidate.source, eventId: candidate.sourceEventId, signalId: reserved.id, chain: candidate.chain, token: candidate.tokenAddress, outcome: existing ? "MERGED" : "CREATED", observedAt: candidate.firstSeenAt }, now);
     const enrichment = source.FEATURE_RADAR_READONLY_ENRICHMENT === "true" ? await enrichRadarCandidate(env.DB, reserved.id, candidate, source).catch((error) => ({ skipped: false, status: "RETRY_SCHEDULED", error: error instanceof Error ? error.message : "UNKNOWN" })) : { skipped: true, status: "DISABLED" };
     const claim = await claimRadarNarrativeTask(env.DB, reserved.id, candidate);

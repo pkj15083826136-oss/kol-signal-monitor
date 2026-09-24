@@ -78,3 +78,17 @@ export async function recordExternalHttp(db: D1Database | undefined, input: { pr
 }
 
 export const API_BUDGETS = LIMITS;
+
+export type ProviderCooldown = { code: string; until: string };
+
+export async function readProviderCooldown(db: D1Database | undefined, provider: ApiProvider, now = new Date()) {
+  const cached = await readApiCache<ProviderCooldown>(db, `${provider}:cooldown:global`, false, now);
+  return cached.hit && cached.value && Date.parse(cached.value.until) > now.getTime() ? cached.value : null;
+}
+
+export async function storeProviderCooldown(db: D1Database | undefined, provider: ApiProvider, code: string, ttlMs: number, now = new Date()) {
+  const duration = Math.max(60_000, Math.min(ttlMs, 6 * 60 * 60_000));
+  const value: ProviderCooldown = { code, until: new Date(now.getTime() + duration).toISOString() };
+  await storeApiCache(db, { cacheKey: `${provider}:cooldown:global`, provider, endpoint: "provider_cooldown", chain: "all", address: "global", value, negative: true, ttlMs: duration, staleMs: duration });
+  return value;
+}

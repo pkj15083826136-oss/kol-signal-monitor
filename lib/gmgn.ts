@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { acquireApiLock, assertApiBudget, readApiCache, recordExternalHttp, releaseApiLock, storeApiCache, tokenCacheKey } from "@/lib/external-api-control";
+import { acquireApiLock, assertApiBudget, readApiCache, readProviderCooldown, recordExternalHttp, releaseApiLock, storeApiCache, storeProviderCooldown, tokenCacheKey } from "@/lib/external-api-control";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -12,6 +12,8 @@ async function gmgnRequest(path: string, params: Record<string, string | number>
   const apiKey = runtimeEnv("GMGN_API_KEY");
   if (!apiKey) throw new Error("GMGN_API_KEY 未配置");
   const db = env.DB;
+  const cooldown = await readProviderCooldown(db, "gmgn");
+  if (cooldown) throw new Error(cooldown.code);
   await assertApiBudget(db, "gmgn", "basic");
   const query = new URLSearchParams({
     ...Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])),
@@ -25,10 +27,22 @@ async function gmgnRequest(path: string, params: Record<string, string | number>
     await recordExternalHttp(db, { provider: "gmgn", tier: "basic", endpoint: path, task, chain: String(params.chain || ""), status: error instanceof DOMException && error.name === "TimeoutError" ? "timeout" : "network_error", latencyMs: Date.now() - started, retryNumber: 0 });
     throw error;
   }
-  await recordExternalHttp(db, { provider: "gmgn", tier: "basic", endpoint: path, task, chain: String(params.chain || ""), status: response.ok ? "success" : "http_error", httpStatus: response.status, latencyMs: Date.now() - started, retryNumber: 0, rateLimited: response.status === 429 });
-  const payload = (await response.json()) as { code?: number; data?: unknown; message?: string; error?: string };
+  const raw = await response.text();
+  let payload: { code?: number; data?: unknown; message?: string; error?: string } = {};
+  try { payload = raw ? JSON.parse(raw) as typeof payload : {}; } catch { payload = {}; }
+  const providerMessage = String(payload.message || payload.error || "");
+  const ipBanned = /temporarily banned|ip.{0,20}banned/i.test(providerMessage);
+  const rateLimited = response.status === 429 || ipBanned || /rate limit/i.test(providerMessage);
+  await recordExternalHttp(db, { provider: "gmgn", tier: "basic", endpoint: path, task, chain: String(params.chain || ""), status: response.ok && payload.code === 0 ? "success" : rateLimited ? "rate_limited" : "http_error", httpStatus: response.status, latencyMs: Date.now() - started, retryNumber: 0, rateLimited });
+  if (rateLimited) {
+    const retryAfter = Number(response.headers.get("retry-after"));
+    const ttlMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : ipBanned ? 60 * 60_000 : 15 * 60_000;
+    const code = ipBanned ? "IP_TEMPORARILY_BANNED" : "RATE_LIMITED";
+    await storeProviderCooldown(db, "gmgn", code, ttlMs);
+    throw new Error(code);
+  }
   if (!response.ok || payload.code !== 0) {
-    throw new Error(payload.message || payload.error || `GMGN HTTP ${response.status}`);
+    throw new Error(`GMGN_PROVIDER_ERROR_${response.status}`);
   }
   return payload.data;
 }

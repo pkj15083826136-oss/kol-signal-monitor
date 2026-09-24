@@ -1,5 +1,5 @@
 import { chromium } from "@playwright/test";
-import { mkdir, unlink, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 
@@ -17,6 +17,15 @@ if (profileDir.includes(".git") || profileDir.includes("链上早期信号")) {
 await mkdir(profileDir, { recursive: true });
 await mkdir(stateDir, { recursive: true });
 const pidFile = path.join(stateDir, "ave-collector.pid");
+const queueFile = path.join(stateDir, "upload-queue.json");
+const logFile = path.join(stateDir, "ave-collector.jsonl");
+try {
+  const existingPid = Number((await readFile(pidFile, "utf8")).trim());
+  if (Number.isInteger(existingPid) && existingPid > 0) {
+    try { process.kill(existingPid, 0); throw new Error(`采集器已在运行（PID ${existingPid}）`); } catch (error) { if (error instanceof Error && error.message.includes("已在运行")) throw error; }
+  }
+  await unlink(pidFile).catch(() => {});
+} catch (error) { if (error instanceof Error && error.message.includes("已在运行")) throw error; }
 await writeFile(pidFile, String(process.pid), "utf8");
 
 const instanceId = randomUUID();
@@ -37,12 +46,25 @@ const stats = {
 };
 let stopping = false;
 let activeContext = null;
+let uploadQueue = [];
+let flushPromise = null;
+try { const stored = JSON.parse(await readFile(queueFile, "utf8")); if (Array.isArray(stored)) uploadQueue = stored.slice(0, 5_000); } catch { uploadQueue = []; }
+
+async function log(event, detail = {}) {
+  await appendFile(logFile, `${JSON.stringify({ at: new Date().toISOString(), event, ...detail })}\n`, "utf8").catch(() => {});
+}
+
+async function saveQueue() {
+  const temporary = `${queueFile}.tmp`;
+  await writeFile(temporary, JSON.stringify(uploadQueue.slice(0, 5_000)), "utf8");
+  await rename(temporary, queueFile);
+}
 
 function collectorStatus() {
   return { instanceId, ...stats };
 }
 
-async function post(candidates = [], status = "healthy", error = "") {
+async function send(candidates = [], status = "healthy", error = "") {
   const response = await fetch(`${site}/api/radar/collect`, {
     method: "POST",
     headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" },
@@ -60,6 +82,35 @@ async function post(candidates = [], status = "healthy", error = "") {
     stats.uploadedCount += candidates.length;
     stats.lastUploadAt = new Date().toISOString();
   }
+}
+
+async function flushQueue(status = "healthy", error = "") {
+  if (flushPromise) return flushPromise;
+  flushPromise = (async () => {
+    if (!uploadQueue.length) { await send([], status, error); return; }
+    const batch = uploadQueue.slice(0, 30);
+    try {
+      await send(batch, status, error);
+      const uploadedIds = new Set(batch.map((item) => item.sourceEventId));
+      uploadQueue = uploadQueue.filter((item) => !uploadedIds.has(item.sourceEventId));
+      await saveQueue();
+      await log("upload_success", { count: batch.length, queued: uploadQueue.length });
+    } catch (uploadError) {
+      await saveQueue();
+      await log("upload_failed", { count: batch.length, queued: uploadQueue.length, reason: uploadError instanceof Error ? uploadError.message.slice(0, 120) : "unknown" });
+      throw uploadError;
+    }
+  })().finally(() => { flushPromise = null; });
+  return flushPromise;
+}
+
+async function post(candidates = [], status = "healthy", error = "") {
+  if (candidates.length) {
+    const known = new Set(uploadQueue.map((item) => item.sourceEventId));
+    for (const candidate of candidates) if (!known.has(candidate.sourceEventId)) { uploadQueue.push(candidate); known.add(candidate.sourceEventId); }
+    await saveQueue();
+  }
+  return flushQueue(status, error);
 }
 
 function chainOf(value) {
@@ -138,6 +189,7 @@ function mapRows(payload) {
       sourceDescriptionAt: asIso(row.signal_time || row.first_signal_time || Date.now()),
       sourceDescriptionSource: "ave_smart_browser",
       knownProjectAccount: typeof row.twitter === "string" ? row.twitter : null,
+      avatar_url: row.logo || row.token_logo || row.token_icon || row.icon || row.image || row.avatar || null,
       rawSnapshot: {
         id: row.id,
         token: row.token,
@@ -152,7 +204,8 @@ function mapRows(payload) {
         holders_cur: row.holders_cur,
         top10_ratio: row.top10_ratio,
         current_price_usd: row.current_price_usd,
-        logo: row.logo || row.token_logo || row.icon || null,
+        avatar_url: row.logo || row.token_logo || row.token_icon || row.icon || row.image || row.avatar || null,
+        logo: row.logo || row.token_logo || row.token_icon || row.icon || row.image || row.avatar || null,
         token_create_time: row.token_create_time || row.created_at || null,
         pair_create_time: row.pair_create_time || row.pool_created_at || null,
         liquidity: row.liquidity || row.liquidity_usd || null,
@@ -177,20 +230,27 @@ async function runBrowser() {
   const page = context.pages()[0] || await context.newPage();
   const browserStartedAt = Date.now();
   let reloadInFlight = false;
+  let reconnectAttempt = 0;
+  let nextReconnectAt = 0;
   stats.connectionStatus = "connected";
 
   page.on("websocket", (socket) => {
     stats.websocketStatus = "connected";
+    reconnectAttempt = 0;
     socket.on("framereceived", () => {
       stats.lastEventAt = new Date().toISOString();
     });
     socket.on("close", () => {
       stats.websocketStatus = "disconnected";
+      reconnectAttempt += 1;
+      nextReconnectAt = Date.now() + Math.min(60_000, 1_000 * 2 ** Math.min(reconnectAttempt, 6));
     });
   });
   page.on("requestfailed", (request) => {
     if (request.resourceType() === "websocket") stats.websocketStatus = "disconnected";
   });
+  page.on("crash", () => { void log("page_crash"); void context.close().catch(() => {}); });
+  page.on("close", () => { if (!stopping) { void log("page_closed"); void context.close().catch(() => {}); } });
   page.on("response", async (response) => {
     if (!response.url().includes("/v2api/signals/v2/public/list/v4")) return;
     stats.lastEventAt = new Date().toISOString();
@@ -217,13 +277,15 @@ async function runBrowser() {
       console.error(`[${instanceId.slice(0, 8)}] 心跳上传失败：${error instanceof Error ? error.message : "unknown"}`);
     });
     const lastStructuredEvent = stats.lastEventAt ? new Date(stats.lastEventAt).getTime() : browserStartedAt;
-    if (!reloadInFlight && Date.now() - lastStructuredEvent > 120_000) {
+    const disconnected = stats.websocketStatus === "disconnected" && Date.now() >= nextReconnectAt;
+    if (stats.loginStatus !== "required" && !reloadInFlight && (disconnected || Date.now() - lastStructuredEvent > 120_000)) {
       reloadInFlight = true;
       void page.reload({ waitUntil: "domcontentloaded", timeout: 45_000 })
-        .catch((error) => console.error(`[${instanceId.slice(0, 8)}] 页面恢复失败：${error instanceof Error ? error.message : "unknown"}`))
+        .then(() => log("page_reloaded", { reconnectAttempt }))
+        .catch((error) => { void log("page_reload_failed", { reason: error instanceof Error ? error.message.slice(0, 120) : "unknown" }); console.error(`[${instanceId.slice(0, 8)}] 页面恢复失败：${error instanceof Error ? error.message : "unknown"}`); })
         .finally(() => { reloadInFlight = false; });
     }
-  }, 60_000);
+  }, 30_000);
   await new Promise((resolve) => context.once("close", resolve));
   activeContext = null;
   clearInterval(timer);
@@ -240,6 +302,7 @@ process.once("SIGINT", () => { void stop(); });
 process.once("SIGTERM", () => { void stop(); });
 
 console.log(`[${instanceId.slice(0, 8)}] Ave Smart采集器已启动；浏览器会话仅保存在本机。`);
+await log("collector_started", { instanceId, queued: uploadQueue.length });
 while (!stopping) {
   try {
     await runBrowser();
@@ -249,6 +312,7 @@ while (!stopping) {
     const message = error instanceof Error ? error.message : "collector_failed";
     await post([], "error", message).catch(() => {});
     console.error(`[${instanceId.slice(0, 8)}] 采集器将自动恢复：${message}`);
+    await log("collector_restarting", { reason: message.slice(0, 120) });
   }
   if (!stopping) await new Promise((resolve) => setTimeout(resolve, 5_000));
 }

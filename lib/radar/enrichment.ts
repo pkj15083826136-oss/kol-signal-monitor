@@ -62,11 +62,24 @@ function walk(value: unknown, visit: (row: Record<string, unknown>) => void, dep
 function firstDeepString(value: unknown, keys: string[]) { let found = ""; walk(value, (row) => { if (found) return; for (const key of keys) { const candidate = text(row[key]); if (candidate) { found = candidate; break; } } }); return found; }
 function firstDeepNumber(value: unknown, keys: string[]) { let found: number | null = null; walk(value, (row) => { if (found !== null) return; for (const key of keys) { const candidate = positive(row[key]); if (candidate !== null) { found = candidate; break; } } }); return found; }
 
-export function extractProviderAvatar(payload: unknown) { return safeAvatarUrl(firstDeepString(payload, ["logo", "logo_url", "logoUrl", "tokenLogoUrl", "icon", "icon_url", "image", "image_url"])); }
+export function extractProviderAvatar(payload: unknown) { return safeAvatarUrl(firstDeepString(payload, ["avatar_url", "avatar", "logo", "logo_url", "logoUrl", "token_logo", "token_icon", "tokenLogoUrl", "icon", "icon_url", "image", "image_url"])); }
 export function chooseAvatar(input: { ave?: unknown; gmgn?: unknown; okx?: unknown; chain: string; address: string }, now = new Date().toISOString()) {
   const candidates = [["ave", extractProviderAvatar(input.ave)], ["gmgn", extractProviderAvatar(input.gmgn)], ["okx", extractProviderAvatar(input.okx)]] as const;
   const selected = candidates.find(([, url]) => Boolean(url)); const original = selected?.[1] || null;
   return { avatar_original_url: original, avatar_resolved_url: proxiedAvatarUrl(original, input.chain, input.address), avatar_source: selected?.[0] || "identicon", avatar_checked_at: now, avatar_status: original ? "VERIFIED" : "FALLBACK_IDENTICON", avatar_error_code: original ? null : "AVATAR_NOT_RETURNED" };
+}
+
+export async function persistAveSignalAvatar(db: D1Database, signalId: number, candidate: RadarCandidate, now = new Date().toISOString()) {
+  const avatar = chooseAvatar({ ave: candidate.rawSnapshot, chain: candidate.chain, address: candidate.tokenAddress }, now);
+  if (avatar.avatar_source !== "ave" || !avatar.avatar_original_url) return { saved: false, source: null };
+  await db.prepare(`INSERT INTO radar_enrichment_state (radar_signal_id,status,trade_data_stage,avatar_original_url,avatar_resolved_url,avatar_source,avatar_checked_at,avatar_status,avatar_error_code,system_first_seen_at,updated_at)
+    VALUES (?,'PENDING','PAIR_DISCOVERY_PENDING',?,?,'AVE_SIGNAL',?,'VERIFIED',NULL,?,?)
+    ON CONFLICT(radar_signal_id) DO UPDATE SET
+      avatar_original_url=CASE WHEN radar_enrichment_state.avatar_source='AVE_SIGNAL' AND radar_enrichment_state.avatar_original_url IS NOT NULL THEN radar_enrichment_state.avatar_original_url ELSE excluded.avatar_original_url END,
+      avatar_resolved_url=CASE WHEN radar_enrichment_state.avatar_source='AVE_SIGNAL' AND radar_enrichment_state.avatar_resolved_url IS NOT NULL THEN radar_enrichment_state.avatar_resolved_url ELSE excluded.avatar_resolved_url END,
+      avatar_source='AVE_SIGNAL',avatar_checked_at=excluded.avatar_checked_at,avatar_status='VERIFIED',avatar_error_code=NULL,updated_at=excluded.updated_at`)
+    .bind(signalId, avatar.avatar_original_url, avatar.avatar_resolved_url, now, candidate.firstSeenAt, now).run();
+  return { saved: true, source: "AVE_SIGNAL" };
 }
 
 export function normalizePropagationStage(value: unknown, narrativeStatus = "COMPLETED", evidenceCount = 0): PropagationStage | "ANALYSIS_FAILED" | "ANALYZING" {
@@ -155,7 +168,7 @@ export async function quoteV2Bands(input: { rpcUrl: string; registry: DexRegistr
 }
 
 function retryAt(attempt: number) { return new Date(Date.now() + Math.min(6 * 60 * 60_000, 60_000 * 2 ** Math.min(attempt, 8))).toISOString(); }
-function enrichmentError(error: unknown, attempt: number): FieldState<null> { const message = error instanceof Error ? error.message : "UNKNOWN_ERROR"; const rateLimited = /rate|429/i.test(message); return fieldState<null>(rateLimited ? "RATE_LIMITED" : "RETRY_SCHEDULED", null, { checked_at: new Date().toISOString(), error_code: rateLimited ? "RATE_LIMITED" : "PROVIDER_ERROR", error_reason: message.slice(0, 300), retry_count: attempt, next_retry_at: retryAt(attempt), terminal: false }); }
+function enrichmentError(error: unknown, attempt: number): FieldState<null> { const message = error instanceof Error ? error.message : "UNKNOWN_ERROR"; const ipBanned = /IP_TEMPORARILY_BANNED/i.test(message); const rateLimited = ipBanned || /rate|429/i.test(message); return fieldState<null>(rateLimited ? "RATE_LIMITED" : "RETRY_SCHEDULED", null, { checked_at: new Date().toISOString(), error_code: ipBanned ? "IP_TEMPORARILY_BANNED" : rateLimited ? "RATE_LIMITED" : "PROVIDER_ERROR", error_reason: ipBanned ? "provider cooldown active" : message.slice(0, 300), retry_count: attempt, next_retry_at: retryAt(attempt), terminal: false }); }
 
 export async function enrichRadarCandidate(db: D1Database, signalId: number, candidate: RadarCandidate, runtime: Record<string, unknown>, fetcher: typeof fetch = fetch) {
   const now = new Date().toISOString(); const prior = await db.prepare("SELECT status,retry_count,next_retry_at FROM radar_enrichment_state WHERE radar_signal_id=?").bind(signalId).first<{ status: string; retry_count: number; next_retry_at: string | null }>().catch(() => null);

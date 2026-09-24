@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { collectorDisplayState } from "@/lib/radar/learning";
 import { chooseAvatar, dexRegistryFor, extractActivity, extractPoolCandidates, extractTokenCreatedAt, fieldState, leadTimingFromScore, marketConflict, normalizePropagationStage, safeAvatarUrl, selectPrimaryPool, tradeDataStage, validAvatarContentType } from "@/lib/radar/enrichment";
+import { publicCollectorStatus, publicEnrichmentStatus } from "@/lib/radar/public-status";
 import { parseOkxTokenSearch } from "@/lib/providers/okx";
 
 const now = Date.parse("2026-09-24T10:00:00.000Z");
@@ -77,5 +78,52 @@ describe("radar market enrichment and source status", () => {
     const source = readFileSync("app/api/radar/enrich/route.ts", "utf8"); expect(source).toContain("FEATURE_RADAR_READONLY_ENRICHMENT"); expect(source).not.toMatch(/sendTransaction|writeContract|signTransaction|privateKey|mnemonic/);
     const collector = readFileSync("app/api/radar/collect/route.ts", "utf8"); expect(collector).toContain("PARSE_FAILED"); expect(collector).toContain("DUPLICATE");
     const runner = readFileSync("scripts/run-radar-enrichment.mjs", "utf8"); expect(runner).toContain("limit: 5"); expect(runner).not.toMatch(/GMGN_API_KEY|price-info|privateKey|signedTransaction/);
+  });
+
+  it("maps internal collector and provider states to safe Chinese copy", () => {
+    expect(publicCollectorStatus("CONNECTED")).toBe("运行正常");
+    expect(publicCollectorStatus("IDLE")).toBe("暂无新信号");
+    expect(publicCollectorStatus("STALE")).toBe("连接中断");
+    expect(publicCollectorStatus("LOGIN_REQUIRED")).toBe("需要登录");
+    expect(publicEnrichmentStatus("RATE_LIMITED")).toBe("数据更新中");
+    expect(publicEnrichmentStatus("IP_TEMPORARILY_BANNED")).toBe("数据源暂时繁忙");
+    expect(publicEnrichmentStatus("RPC_ERROR")).toBe("链上数据暂不可用");
+  });
+
+  it("keeps internal enrichment diagnostics out of the public radar card", () => {
+    const source = readFileSync("app/radar/radar-dashboard.tsx", "utf8");
+    expect(source).not.toContain("头像 {row.avatarStatus}");
+    expect(source).not.toContain("补全 {row.enrichmentStatus}");
+    expect(source).not.toContain("补全原因：{row.enrichmentError}");
+    expect(source).not.toContain('label="Pair / 流动性"');
+    expect(source).not.toContain('label="Token年龄"');
+    expect(source).toContain("publicCollectorStatus");
+  });
+
+  it("captures Ave avatars before provider enrichment and keeps uploads durable", () => {
+    const collector = readFileSync("scripts/ave-smart-collector.mjs", "utf8");
+    const ingest = readFileSync("app/api/radar/collect/route.ts", "utf8");
+    expect(collector).toContain("avatar_url");
+    expect(collector).toContain("upload-queue.json");
+    expect(collector).toContain("appendFile");
+    expect(collector).toContain("30_000");
+    expect(ingest).toContain("persistAveSignalAvatar");
+  });
+
+  it("opens a GMGN provider cooldown after rate limiting or a temporary IP ban", () => {
+    const source = readFileSync("lib/gmgn.ts", "utf8");
+    expect(source).toContain("readProviderCooldown");
+    expect(source).toContain("storeProviderCooldown");
+    expect(source).toContain("IP_TEMPORARILY_BANNED");
+    expect(source).not.toContain("response.json()) as");
+  });
+
+  it("ships a single-instance Windows supervisor with automatic restart", () => {
+    const supervisor = readFileSync("scripts/run-ave-smart-supervisor.ps1", "utf8");
+    const installer = readFileSync("scripts/install-ave-smart-autostart.ps1", "utf8");
+    expect(supervisor).toContain("ave-supervisor.pid");
+    expect(supervisor).toContain("Start-Process");
+    expect(installer).toContain("Register-ScheduledTask");
+    expect(installer).toContain("AtLogOn");
   });
 });
