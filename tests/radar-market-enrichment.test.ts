@@ -129,5 +129,7 @@ describe("radar market enrichment and source status", () => {
     expect(supervisor).toContain("Start-Process");
     expect(installer).toContain("Register-ScheduledTask");
     expect(installer).toContain("AtLogOn");
+    expect(installer).toContain("Get-Command node");
+    expect(installer).toContain("-NodePath");
   });
 });
