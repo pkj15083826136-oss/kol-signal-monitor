@@ -225,6 +225,7 @@ async function runBrowser() {
   const context = await chromium.launchPersistentContext(profileDir, {
     headless: false,
     channel: "msedge",
+    timeout: 45_000,
   });
   activeContext = context;
   const page = context.pages()[0] || await context.newPage();

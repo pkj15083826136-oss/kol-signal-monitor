@@ -3,6 +3,7 @@ $stateRoot = Join-Path $env:LOCALAPPDATA "KOLSignalMonitor"
 $profileDir = Join-Path $stateRoot "AveSmartProfile"
 $secretFile = Join-Path $stateRoot "ave-collector-secret.dpapi"
 $supervisorPidFile = Join-Path $stateRoot "ave-supervisor.pid"
+$supervisorLogFile = Join-Path $stateRoot "ave-supervisor.log"
 $siteUrl = "https://kol-signal-monitor.pkj15083826136.chatgpt.site"
 $projectRoot = Split-Path $PSScriptRoot -Parent
 
@@ -14,6 +15,16 @@ if (Test-Path -LiteralPath $supervisorPidFile) {
   Remove-Item -LiteralPath $supervisorPidFile -Force -ErrorAction SilentlyContinue
 }
 Set-Content -LiteralPath $supervisorPidFile -Value $PID -Encoding ascii
+
+function Write-SupervisorLog([string]$Message) {
+  Add-Content -LiteralPath $supervisorLogFile -Value "$(Get-Date -Format o) $Message" -Encoding UTF8
+}
+
+function Stop-StaleCollectorBrowsers {
+  Get-CimInstance Win32_Process -Filter "Name = 'msedge.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -and $_.CommandLine.Contains("--user-data-dir=$profileDir") } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+}
 
 try {
   if (-not (Test-Path -LiteralPath $secretFile)) {
@@ -28,6 +39,7 @@ try {
   $env:AVE_COLLECTOR_SECRET = $plainSecret
   $env:AVE_COLLECTOR_PROFILE_DIR = $profileDir
   $env:AVE_COLLECTOR_STATE_DIR = $stateRoot
+  Write-SupervisorLog "supervisor_started pid=$PID"
   while ($true) {
     $stalePid = Join-Path $stateRoot "ave-collector.pid"
     if (Test-Path -LiteralPath $stalePid) {
@@ -35,10 +47,13 @@ try {
       if (-not (Get-Process -Id $collectorPid -ErrorAction SilentlyContinue)) { Remove-Item -LiteralPath $stalePid -Force -ErrorAction SilentlyContinue }
     }
     $process = Start-Process -FilePath "node" -ArgumentList @((Join-Path $PSScriptRoot "ave-smart-collector.mjs")) -WorkingDirectory $projectRoot -NoNewWindow -PassThru -Wait
+    Write-SupervisorLog "collector_exited pid=$($process.Id) exit=$($process.ExitCode)"
+    Stop-StaleCollectorBrowsers
     if ($process.ExitCode -eq 0) { break }
     Start-Sleep -Seconds 10
   }
 } finally {
+  Write-SupervisorLog "supervisor_stopped pid=$PID"
   Remove-Item Env:\AVE_COLLECTOR_SECRET -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $supervisorPidFile -Force -ErrorAction SilentlyContinue
   $plainSecret = $null

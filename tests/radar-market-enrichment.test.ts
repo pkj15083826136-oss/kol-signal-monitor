@@ -107,6 +107,7 @@ describe("radar market enrichment and source status", () => {
     expect(collector).toContain("upload-queue.json");
     expect(collector).toContain("appendFile");
     expect(collector).toContain("30_000");
+    expect(collector).toContain("timeout: 45_000");
     expect(ingest).toContain("persistAveSignalAvatar");
   });
 
@@ -122,6 +123,8 @@ describe("radar market enrichment and source status", () => {
     const supervisor = readFileSync("scripts/run-ave-smart-supervisor.ps1", "utf8");
     const installer = readFileSync("scripts/install-ave-smart-autostart.ps1", "utf8");
     expect(supervisor).toContain("ave-supervisor.pid");
+    expect(supervisor).toContain("ave-supervisor.log");
+    expect(supervisor).toContain("Stop-StaleCollectorBrowsers");
     expect(supervisor).toContain("Start-Process");
     expect(installer).toContain("Register-ScheduledTask");
     expect(installer).toContain("AtLogOn");
