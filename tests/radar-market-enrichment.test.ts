@@ -23,6 +23,9 @@ describe("radar market enrichment and source status", () => {
     expect(safeAvatarUrl("https://evil.example/a.png")).toBeNull();
     expect(validAvatarContentType("image/png; charset=binary")).toBe(true);
     expect(validAvatarContentType("image/svg+xml")).toBe(false);
+    const proxy = readFileSync("app/api/radar/avatar/route.ts", "utf8");
+    expect(proxy).toContain("upstream.arrayBuffer()");
+    expect(proxy).toContain("AbortSignal.timeout(10_000)");
   });
 
   it("uses Ave, GMGN, OKX then identicon avatar priority", () => {
