@@ -43,7 +43,7 @@ try {
       $collectorPid = [int](Get-Content -Raw -LiteralPath $stalePid)
       if (-not (Get-Process -Id $collectorPid -ErrorAction SilentlyContinue)) { Remove-Item -LiteralPath $stalePid -Force -ErrorAction SilentlyContinue }
     }
-    $process = Start-Process -FilePath $NodePath -ArgumentList @((Join-Path $PSScriptRoot "ave-smart-collector.mjs")) -WorkingDirectory $projectRoot -NoNewWindow -PassThru -Wait
+    $process = Start-Process -FilePath $NodePath -ArgumentList @((Join-Path $PSScriptRoot "ave-smart-collector.mjs")) -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru -Wait
     Write-SupervisorLog "collector_exited pid=$($process.Id) exit=$($process.ExitCode)"
     Stop-StaleCollectorBrowsers
     if ($process.ExitCode -eq 0) { break }

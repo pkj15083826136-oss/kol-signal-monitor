@@ -127,6 +127,8 @@ describe("radar market enrichment and source status", () => {
     expect(supervisor).toContain("ave-supervisor.log");
     expect(supervisor).toContain("Stop-StaleCollectorBrowsers");
     expect(supervisor).toContain("Start-Process");
+    expect(supervisor).toContain("-WindowStyle Hidden");
+    expect(supervisor).not.toContain("-NoNewWindow");
     expect(installer).toContain("Register-ScheduledTask");
     expect(installer).toContain("AtLogOn");
     expect(installer).toContain("Get-Command node");
