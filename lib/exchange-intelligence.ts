@@ -21,27 +21,27 @@ export const ANNOUNCEMENT_SOURCES: Record<Exchange, string> = {
   binance: "https://www.binance.com/bapi/composite/v1/public/cms/article/list/query?type=1&pageNo=1&pageSize=20",
   coinbase: "https://www.coinbase.com/blog/Coinbase-Markets-on-X-Your-New-Home-for-All-Listings",
   upbit: "https://upbit.com/service_center/notice",
-  okx: "https://www.okx.com/help/category/announcements",
+  okx: "https://www.okx.com/en-us/help/section/announcements-new-listings",
   bybit: "https://announcements.bybit.com/en/",
-  kraken: "https://support.kraken.com/hc/en-us/sections/360012315212-new-coin-listings",
-  bitget: "https://www.bitget.com/support/sections/12508313416907",
-  gate: "https://www.gate.com/announcements",
-  mexc: "https://www.mexc.com/support/categories/360000254192",
+  kraken: "https://blog.kraken.com/wp-json/wp/v2/posts?categories=1789&per_page=20&_fields=id,date_gmt,link,title",
+  bitget: "https://api.bitget.com/api/v2/public/annoucements?language=en_US&limit=10",
+  gate: "https://api.gateio.ws/api/v4/ann/list_article",
+  mexc: "https://www.mexc.com/en-GB/announcements",
   htx: "https://www.htx.com/support/en-us/list/360000039942",
 };
 
 function clean(value: unknown) { return String(value ?? "").trim().toUpperCase(); }
+type JsonRecord = Record<string, unknown>;
+function asRecord(value: unknown): JsonRecord { return value !== null && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {}; }
+function asRecords(value: unknown): JsonRecord[] { return Array.isArray(value) ? value.map(asRecord) : []; }
 export function normalizePairs(exchange: Exchange, market: "spot" | "contract", payload: unknown): string[] {
-  const body = payload as Record<string, any>;
-  let rows: any[] = [];
-  if (exchange === "binance" || exchange === "mexc") rows = Array.isArray(body?.symbols) ? body.symbols : market === "contract" && Array.isArray(body?.data) ? body.data : [];
-  else if (exchange === "coinbase" || exchange === "gate") rows = Array.isArray(payload) ? payload as any[] : [];
-  else if (exchange === "upbit") rows = Array.isArray(payload) ? payload as any[] : [];
-  else if (exchange === "okx") rows = Array.isArray(body?.data) ? body.data : [];
-  else if (exchange === "bybit") rows = Array.isArray(body?.result?.list) ? body.result.list : [];
-  else if (exchange === "kraken") rows = Object.entries(body?.result || {}).map(([key, value]) => ({ key, ...(value as object) }));
-  else if (exchange === "bitget") rows = Array.isArray(body?.data) ? body.data : [];
-  else if (exchange === "htx") rows = Array.isArray(body?.data) ? body.data : [];
+  const body = asRecord(payload);
+  let rows: JsonRecord[] = [];
+  if (exchange === "binance" || exchange === "mexc") rows = asRecords(body.symbols ?? (market === "contract" ? body.data : []));
+  else if (exchange === "coinbase" || exchange === "gate" || exchange === "upbit") rows = asRecords(payload);
+  else if (exchange === "okx" || exchange === "bitget" || exchange === "htx") rows = asRecords(body.data);
+  else if (exchange === "bybit") rows = asRecords(asRecord(body.result).list);
+  else if (exchange === "kraken") rows = Object.entries(asRecord(body.result)).map(([key, value]) => ({ key, ...asRecord(value) }));
   const pairs = rows.flatMap((row) => {
     const status = clean(row.status ?? row.state ?? row.trade_status ?? row.contract_status ?? "ONLINE");
     if (["OFFLINE", "CANCEL_ONLY", "SELL_ONLY", "DELISTED"].includes(status)) return [];
@@ -60,14 +60,17 @@ export function splitPair(pair: string) {
 
 export function classifyAnnouncement(title: string): { eventType: ExchangeEventType; marketType: "spot" | "contract" | "activity" | "alpha" } | null {
   const t = title.toLowerCase();
-  if (!/(list|trading support|trading pair|delist|remove|launchpad|launchpool|jumpstart|kickstarter|alpha|perpetual|futures|contract|상장|거래지원|마켓 추가|거래지원 종료)/i.test(title)) return null;
+  if (/(tick size|fee group|maintenance margin|adjust(?:ment|s)? (?:to |the )?(?:leverage|position)|staking products?|crypto loan|websocket)/.test(t)) return null;
+  if (/(?:margin trading pairs?|margin and loan|collateral)/.test(t) && !/(spot|perpetual|futures|contract)/.test(t)) return null;
+  if (!/(list|add support|trading (?:support|pair|will begin|is live)|available for trading|delist|remove support|remove|launchpad|launchpool|jumpstart|kickstarter|alpha|perpetual|futures|contract|상장|거래지원|마켓 추가|거래지원 종료)/i.test(title)) return null;
+  if (/(competition|prize pool|promotion|token splash|rewards?)/.test(t) && !/(will list|to list|listing of|launchpad|launchpool|token sale)/.test(t)) return null;
   if (/alpha/.test(t) && /(remove|delist|移除)/.test(t)) return { eventType: "alpha_remove", marketType: "alpha" };
-  if (/alpha/.test(t)) return { eventType: "alpha_add", marketType: "alpha" };
+  if (/alpha/.test(t) && /(will (?:add|list|include)|added to|listed on|include|introduc)/.test(t)) return { eventType: "alpha_add", marketType: "alpha" };
   if (/(launchpad|launchpool|jumpstart|kickstarter|token sale|打新)/.test(t)) return { eventType: "launch_activity", marketType: "activity" };
-  if (/(perpetual|futures|contract|swap)/.test(t) && /(launch|list|add|open|introduc|거래지원)/.test(t) && !/(delist|remove)/.test(t)) return { eventType: "contract_open", marketType: "contract" };
-  if (/(delist|remov(e|al)|terminate|거래지원 종료)/.test(t)) return { eventType: /(pair|market|마켓|\/usdt|usdt)/.test(t) ? "pair_delisting" : "token_delisting", marketType: /(perpetual|futures|contract|swap)/.test(t) ? "contract" : "spot" };
+  if (/(perpetual|\bperps\b|futures|contract|swap)/.test(t) && /(launch|list|add|open|introduc|거래지원)/.test(t) && !/(delist|remove)/.test(t)) return { eventType: "contract_open", marketType: "contract" };
+  if (/(delist|remov(e|al)|remove support|terminate|거래지원 종료)/.test(t)) return { eventType: /(pair|market|마켓|\/usdt|usdt)/.test(t) ? "pair_delisting" : "token_delisting", marketType: /(perpetual|\bperps\b|futures|contract|swap)/.test(t) ? "contract" : "spot" };
   if (/(pair|market|마켓 추가)/.test(t)) return { eventType: "spot_pair_add", marketType: "spot" };
-  if (/(will list|to list|new listing|trading support|상장|거래지원)/.test(t)) return { eventType: "first_spot_listing", marketType: "spot" };
+  if (/(will list|to list|new listing|add support|trading (?:support|will begin|is live)|available for trading|상장|거래지원)/.test(t)) return { eventType: "first_spot_listing", marketType: "spot" };
   return null;
 }
 
@@ -79,9 +82,9 @@ export function extractAnnouncementLinks(html: string, baseUrl: string) {
     const title = match[2].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(); const classified = classifyAnnouncement(title); if (!classified || title.length < 8 || /^(futures trading|spot trading|new coin listings?|delistings?|announcements?|trading support)$/i.test(title)) continue;
     let url: string; try { url = new URL(match[1], baseUrl).toString(); } catch { continue; }
     const target = new URL(url); const host = new URL(baseUrl).hostname;
-    if (host.includes("okx.com") && (!target.pathname.startsWith("/help/") || target.pathname.includes("/category/"))) continue;
+    if (host.includes("okx.com") && (!/\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?help\//i.test(target.pathname) || target.pathname.includes("/category/") || target.pathname.includes("/section/"))) continue;
     if (host.includes("bybit.com") && !target.pathname.includes("/article/")) continue;
-    if (host.includes("kraken") && (!target.hostname.startsWith("support.") || !target.pathname.includes("/articles/"))) continue;
+    if (host.includes("kraken") && !target.pathname.includes("/product/asset-listings/")) continue;
     if (host.includes("bitget.com") && !target.pathname.includes("/support/articles/")) continue;
     if (host.includes("gate.com") && !target.pathname.includes("/announcements/article/")) continue;
     if (host.includes("mexc.com") && !target.pathname.includes("/announcements/article/")) continue;
@@ -92,10 +95,47 @@ export function extractAnnouncementLinks(html: string, baseUrl: string) {
   return out;
 }
 
+export function extractBitgetAnnouncements(payload: unknown) {
+  const rows = asRecords(asRecord(payload).data);
+  return rows.flatMap((row) => {
+    const title = String(row.annTitle || "").trim(); const id = String(row.annId || "").trim(); const url = String(row.annUrl || "").trim();
+    if (!id || !url || !classifyAnnouncement(title)) return [];
+    const date = new Date(Number(row.cTime || 0));
+    return [{ id, title, url, announcedAt: Number.isFinite(date.getTime()) && date.getTime() > 0 ? date.toISOString() : null }];
+  });
+}
+
+export function extractGateAnnouncements(payload: unknown) {
+  const rows = asRecords(asRecord(asRecord(payload).data).list);
+  return rows.flatMap((row) => {
+    const title = String(row.title || "").trim(); const id = String(row.id || "").trim(); if (!id || !classifyAnnouncement(title)) return [];
+    const seconds = Number(row.release_timestamp || row.created_t || 0); const date = new Date(seconds * 1000);
+    return [{ id, title, url: new URL(String(row.url || `/announcements/article/${id}`), "https://www.gate.com").toString(), announcedAt: Number.isFinite(date.getTime()) && date.getTime() > 0 ? date.toISOString() : null }];
+  });
+}
+
+export function extractCoinbaseXAnnouncements(payload: unknown) {
+  const rows = asRecords(asRecord(payload).data);
+  return rows.flatMap((row) => {
+    const title = String(row.text || "").replace(/https:\/\/t\.co\/\S+/g, "").trim(); const id = String(row.id || "").trim(); if (!id || !classifyAnnouncement(title)) return [];
+    const date = new Date(String(row.created_at || ""));
+    return [{ id, title, url: `https://x.com/CoinbaseMarkets/status/${id}`, announcedAt: Number.isFinite(date.getTime()) ? date.toISOString() : null }];
+  });
+}
+
+export function extractKrakenAnnouncements(payload: unknown) {
+  return asRecords(payload).flatMap((row) => {
+    const title = String(asRecord(row.title).rendered || "").replace(/<[^>]+>/g, " ").replace(/&#8217;/g, "’").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
+    const id = String(row.id || "").trim(); const url = String(row.link || "").trim();
+    if (!id || !url || !classifyAnnouncement(title)) return [];
+    const rawDate = String(row.date_gmt || row.date || ""); const date = new Date(rawDate && !/[zZ]|[+-]\d\d:\d\d$/.test(rawDate) ? `${rawDate}Z` : rawDate);
+    return [{ id, title, url, announcedAt: Number.isFinite(date.getTime()) ? date.toISOString() : null }];
+  });
+}
+
 export function extractBinanceAnnouncements(payload: unknown) {
-  const catalogs = (payload as any)?.data?.catalogs;
-  if (!Array.isArray(catalogs)) return [] as { id: string; title: string; url: string; announcedAt: string | null }[];
-  return catalogs.flatMap((catalog: any) => Array.isArray(catalog.articles) ? catalog.articles : []).flatMap((article: any) => {
+  const catalogs = asRecords(asRecord(asRecord(payload).data).catalogs);
+  return catalogs.flatMap((catalog) => asRecords(catalog.articles)).flatMap((article) => {
     const title = String(article.title || "").trim(); if (!classifyAnnouncement(title) || !article.code) return [];
     const date = new Date(Number(article.releaseDate || 0));
     return [{ id: String(article.id || article.code), title, url: `https://www.binance.com/en/support/announcement/${String(article.code)}`, announcedAt: Number.isFinite(date.getTime()) && date.getTime() > 0 ? date.toISOString() : null }];
@@ -106,4 +146,11 @@ export function eventPriority(type: ExchangeEventType, pairs: string[]) {
   if (["first_spot_listing", "token_delisting", "alpha_add", "alpha_remove", "launch_activity"].includes(type)) return "high";
   if (type === "pair_delisting" && pairs.some((pair) => /USDT/i.test(pair))) return "high";
   return type === "contract_open" ? "high" : "normal";
+}
+
+export function shouldAlertAnnouncement(lastSuccessAt: string | null, announcementAt: string | null) {
+  if (!lastSuccessAt) return false;
+  if (!announcementAt) return true;
+  const previous = Date.parse(lastSuccessAt); const announced = Date.parse(announcementAt);
+  return !Number.isFinite(previous) || !Number.isFinite(announced) || announced > previous;
 }

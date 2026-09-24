@@ -17,6 +17,8 @@
 - Git 默认分支：`main`
 - 调度器位于 GitHub Actions，调用 `/api/monitor/run`。
 
+`codex/exchange-fund-flow` 分支正在开发两个隔离栏目，迁移为 `drizzle/0020_flowery_the_hunter.sql`。截至 2026-09-24 只在本地 D1 验证，未迁移生产、未合并 main、未发布。交易所官方公告 8/10 接通，Coinbase 缺 X bearer token，Upbit 缺官方 Private Announcement WebSocket key。资金流因 Whale Alert Personal 不允许公开再分发而保持 BLOCKED；详细来源、费用、链路样本和限制见 `docs/MARKET_INTELLIGENCE.md`。
+
 不要创建新 Site、不要更换 D1 绑定、不要把生产密钥复制进本地文件。
 
 ## 三、一次监控周期
