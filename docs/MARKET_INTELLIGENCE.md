@@ -18,8 +18,8 @@
 | 交易所 | 官方公告源 | 当次解析/入库 | 交易对核验 | 状态与实际覆盖 |
 | --- | --- | ---: | --- | --- |
 | Binance | 官方公告分类 API | 24 / 24 | 现货 3713、合约 907 | PASS；上币、交易对、合约、Alpha、活动、下架标题分类 |
-| Coinbase | 官方指定的 `@CoinbaseMarkets` | 0 / 0 | 现货 514 | BLOCKED；Coinbase 已于 2025-09-08 把新上币、期货和永续公告集中到该 X 账号，未找到等价的稳定公开结构化公告流；当前只可核验实际交易对 |
-| Upbit | 官方 Private Announcement WebSocket | 0 / 0 | 现货 855 | BLOCKED；公开公告网页对采集器返回 403，不能绕过；官方 WebSocket 需要 key、只提供实时 CREATED/UPDATED 且不提供历史重放；当前只可核验实际交易对 |
+| Coinbase | 官方指定的 `@CoinbaseMarkets` | 0 / 0 | 现货 514 | PARTIAL；官方提前公告未接通，但官方公开交易对快照继续运行，不能删除该交易所或把缺少公告误写成没有实际交易对监控 |
+| Upbit | 官方 Private Announcement WebSocket | 0 / 0 | 现货 855 | PARTIAL；官方提前公告未接通，但官方公开交易对快照继续运行；不绕过公告网页限制，也不要求交易或提现权限 |
 | OKX | 官方 New listings、Delistings、Trading updates | 20 / 20 | 现货 1415、合约 492 | PASS；三类页面合并去重 |
 | Bybit | 官方公告 API | 9 / 9 | 现货 530、合约 885 | PASS；已排除 Token Splash/奖池活动误判为上币 |
 | Kraken | 官方 Asset Listings WordPress JSON | 20 / 20 | 现货 1368 | PASS；使用官方分类 JSON 和文章 ID，公告与交易对分别保存 |
@@ -40,13 +40,23 @@ Binance 现货 `exchangeInfo` 完整响应约 17.6MB，经 Worker 中转会在�
 
 本分支没有修改钱包、报价、授权、交易历史或广播代码；钱包和全部交易 Feature Flag 保持原值。当前无需真实钱包即可完成单元测试、类型检查、构建、页面隔离和钱包 mock 回归。依据 `AGENTS.md` 第 16 条，真正发布前仍必须由所有者在浏览器中完成钱包断开、EVM 连接和 Solana 连接烟测；仅连接和只读校验，不索要或接收助记词、私钥、签名，不发起报价、授权或交易。该人工烟测是发布硬门槛，不是本地开发阻塞。
 
-调度器使用单调的 60 秒计划点；接口超时时跳过已错过的计划点并记录 `schedule_lag`，不会补发一串并发请求。官方 HTTP 每次最多三次、指数退避重试，失败写入健康表，下轮从官方历史列表与交易对快照重新核对。GitHub Actions 每 30 分钟启动一次 55 分钟轮询作业以容忍调度漂移。交易对响应少于上一完整快照 70% 时按部分响应失败处理并保留原快照；单个交易对须连续两个完整快照都缺失才确认关闭，避免临时部分数据误报批量下架。
+调度器使用单调的 60 秒计划点；接口超时时跳过已错过的计划点并记录 `schedule_lag`，不会补发一串并发请求。官方 HTTP 每次最多三次、指数退避重试，失败写入健康表，下轮从官方历史列表与交易对快照重新核对。GitHub Actions 每 30 分钟触发一次，单次采集最长 25 分钟，并用 workflow concurrency 串行化同一分支的运行，避免原先 55 分钟作业跨批重叠。交易对响应少于上一完整快照 70% 时按部分响应失败处理并保留原快照；单个交易对须连续两个完整快照都缺失才确认关闭，避免临时部分数据误报批量下架。
 
-Upbit 保持一个连接到作业交接，仅在断线、错误或 30 秒收不到 pong 时指数退避重连；两个 33 分钟作业有约 3 分钟交接重叠。由于 Upbit 官方明确只有实时流且无 replay，极端的双连接同时中断仍可能漏掉公告；断线后只能用公开交易对快照补发现“实际开通/停止”，无法补回公告正文和修订历史。发布前需用官方 key 连续观测，不能把它宣称为绝对不漏。
+上述修复解决重叠和补跑风暴，但 GitHub 托管调度仍可能迟到，且两次 25 分钟会话之间存在计划空窗，因此不能把它表述为严格的全天分钟级服务。发布前若要求连续分钟级目标，仍需把同一采集脚本放到单实例常驻采集机，并保留 Site 端事件键、游标和告警队列去重作为第二道保护。
+
+Upbit 单次连接内仅在断线、错误或 30 秒收不到 pong 时指数退避重连；工作流已取消跨批连接重叠。由于 Upbit 官方明确只有实时流且无 replay，调度空窗或连接中断仍可能漏掉公告；断线后只能用公开交易对快照补发现“实际开通/停止”，无法补回公告正文和修订历史。发布前需用官方 key 在常驻单实例采集机连续观测，不能把它宣称为绝对不漏。
 
 Coinbase X 采集只使用 app-only read bearer，不请求发帖、私信或账号写权限。首次解析 `@CoinbaseMarkets` 后把 user id 保存在独立采集器游标，后续每分钟只读最多 25 条 timeline，避免每轮重复计费的用户查询。按 X 公开 pay-per-use 单价（Post read USD 0.005、User read USD 0.010）及同一 UTC 日重复资源通常不重复收费估算，静态 25 条窗口约 USD 3.75/月，另加当天新增帖子；建议先设置 USD 5–10/月 spending limit，以控制台实际账单为准。X 未要求本方案配置 IP 白名单。
 
 Upbit Announcement WebSocket 文档明确该功能“不属于任何权限组”，因此 key 不应勾选资产、订单、提现等权限。Upbit key 创建要求固定公网 IPv4，可白名单至多 10 个地址；GitHub hosted runner 出口不固定，生产应使用固定出口 IPv4 的专用采集机或 self-hosted runner，仅在该机器的 secret/env 中配置 `UPBIT_ACCESS_KEY` 与 `UPBIT_SECRET_KEY`，不放到 Sites。单连接只在建立时订阅并维持心跳，远低于官方每 IP 每秒 5 次连接、每连接每秒 5/每分钟 100 条消息限制。
+
+### New Listings Feed 免费档评估
+
+- 官方产品文档声称免费 `/v2/full` 同时覆盖 Coinbase 与 Upbit，并提供原始来源 URL、分类、ticker、`detected_time_us` 和 `sent_time_us`。免费档固定延迟为 3 秒，不含链上增强和历史接口。
+- WebSocket 没有 replay，供应商也明确不保证完整覆盖。断线后只能依靠本项目持续运行的 Coinbase/Upbit 官方交易对快照补发现“已实际开通/关闭”，无法补回所有提前公告正文或第三方发现时刻。
+- 产品页称免费档可用于 monitoring，自动转发时要求注明 New Listings Feed；未找到一份更完整、可下载的再分发许可文本。因此当前只完成适配器与官方文档格式契约测试，`NEW_LISTINGS_FEED_ENABLED` 默认 `false`，尚未用真实免费 key 实测，不把它写成已接通。
+- 一旦实测，事件 `source_kind` 固定为 `third_party_discovery`，页面显示“第三方发现 · New Listings Feed”，绝不称为官方直采。事件身份使用 `exchange + 原始来源 URL + 事件/市场类型`，不使用供应商明确声明跨边缘不稳定的 `id`。
+- 参考：<https://newlistings.pro/docs/v2/full>、<https://newlistings.pro/docs/faq>、<https://newlistings.pro/exchanges/coinbase>、<https://newlistings.pro/exchanges/upbit>、<https://newlistings.pro/websocket>。
 
 ## 大额资金流向
 
@@ -64,7 +74,35 @@ Upbit Announcement WebSocket 文档明确该功能“不属于任何权限组”
 | Whale Alert Alerts API | 交易双方归属、美元价格；能排除内部/同实体 | WebSocket 实时，100+ 资产、14 条链；同订阅 ID 在 5 分钟内重连可补发 | Alerts USD 29.95/月、100 alerts/hour，明确 personal use only；Business Enterprise API USD 699/月 | **BLOCKED**。通用条款禁止公开、传播或写入第三方可访问系统，除非取得书面许可；即使 USD 699 Business 也必须先书面确认本 Site 与企业微信再分发权 |
 | Nansen API | `tgm/transfers`、`tgm/flows` 可按再分发指南公开并须署名；原始 `/label` 与 Smart Money 多项禁止或受限 | 约 25 条链，REST | Free 100 credits + 每日 10；Pro USD 49/月含 2,000 credits；额外 credits USD 100/100,000 | 对少量指定币种可行，但要按分钟全局扫描会按链×币种线性耗费。示例 10 币×8 链×每分钟约 345.6 万次/月，即约 USD 3,456 credits + USD 49，仍不是完整覆盖；API Terms 对公共第三方应用另有许可要求 |
 | Arkham Intel API | 实体标签、交易与资金流 | 实时 API，地址情报更新为游标续跑 | 按申请开放，官方未公布自助价格 | 候选；须申请 key、报价并取得公开 dashboard/告警使用条款。未获批前 BLOCKED |
-| Bitquery | 实时 transfers、美元值；地址标签覆盖 Ethereum、BNB、Tron、Bitcoin、Solana、Arbitrum、Base 等 12 链 | WebSocket 约 1 秒；自助实时覆盖 10 条核心链；Kafka offset replay 仅 Enterprise | Pro USD 99/月（或年付折合 USD 79/月）+ Address Labels USD 99/月（或年付折合 USD 79.20/月）；Kafka/40+ 链/完整回放需询价 | 当前最低可落地候选：月付合计 USD 198，或年付 USD 1,898.40（折合 USD 158.20/月）。条款虽允许付费计划公开披露数据，但第三方应用仍要求事先书面同意，因此必须先取得覆盖公开网页和企微推送的书面确认；可靠 Kafka replay 另需 Enterprise |
+| Bitquery | 实时 Transfers、`AmountInUSD`；Metadata.Labels 覆盖 12 条链 | GraphQL WebSocket；自助实时 10 条核心链的 Transfers 窗口仅 EVM/Tron 4 小时、Solana 8 小时；原生 Bitcoin 实时需另行确认 | Pro USD 99/月含 100k stream-min + 5GB + 1M points；Labels USD 99/月；额外 200k stream-min / 5GB / 1M points 各 USD 50/月 | **BLOCKED**。10 条链连续订阅为 446,400 stream-min/月，Pro 基础并不够；月付基线约 USD 298（Pro 99 + Labels 99 + 两个 stream-min 包 100），且 GB、长中断补采、原生 Bitcoin 和授权都可能追加费用 |
+
+### Bitquery 默认关闭适配器
+
+`scripts/collect-bitquery.mjs` 已实现 10 条自助核心链的独立 Transfers 订阅：Ethereum、BNB Chain、Base、Arbitrum、Optimism、Polygon、Robinhood、Arc、Tron、Solana。服务端 GraphQL 先按 `AmountInUSD >= 10,000,000` 过滤；事件再查询 `Metadata.Labels`，并保留地址、标签类型、标签值和记录时间。API 以 `chain + tx hash/signature + transfer id + symbol` 去重，机构买卖字段始终为 `null`。断线指数退避，重连时从上次 `Block.Time` 减 5 秒在 realtime 窗口补采；返回达到 5,000 行上限时显式报错，不能宣称补采完整。
+
+采集器、GitHub job 和 Site API 有三重默认关闭：`BITQUERY_ENABLED != true` 不连接；`BITQUERY_PUBLIC_DISTRIBUTION_APPROVED != true` 时 job 不运行；即使错误启动，Site API 仍拒绝 Bitquery 事件写入与企微队列。当前未配置 key、未获得许可、未读取真实 Bitquery 数据，资金流维持 BLOCKED。
+
+#### 自助方案用量模型（31 天月，购买前必须用试用期实测替换估算）
+
+每条链需要 1 个连续 GraphQL subscription，即每链 44,640 stream-minutes。GB 估算假设每条已过滤事件含协议开销平均 2.5KB；标签查询量采用保守上界“每个合格事件一次 Metadata.Labels 批量请求（同一次查两端地址）”，实际 24 小时缓存会更低。事件率不是实测值，只是容量情景，不得作为覆盖证明。
+
+| 链 | 订阅数 | stream-min/月 | 假设 ≥$10m 事件/日 | 预计流量 GB/月 | 标签查询/月上界 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Ethereum | 1 | 44,640 | 500 | 0.039 | 15,500 |
+| Tron | 1 | 44,640 | 500 | 0.039 | 15,500 |
+| Solana | 1 | 44,640 | 250 | 0.019 | 7,750 |
+| BNB Chain | 1 | 44,640 | 100 | 0.008 | 3,100 |
+| Base | 1 | 44,640 | 50 | 0.004 | 1,550 |
+| Arbitrum | 1 | 44,640 | 50 | 0.004 | 1,550 |
+| Optimism | 1 | 44,640 | 25 | 0.002 | 775 |
+| Polygon | 1 | 44,640 | 50 | 0.004 | 1,550 |
+| Robinhood | 1 | 44,640 | 10 | 0.001 | 310 |
+| Arc | 1 | 44,640 | 10 | 0.001 | 310 |
+| **合计** | **10** | **446,400** | **1,545** | **约 0.120** | **47,895** |
+
+公开价格按每次实时 API 调用约 5 points 估算，47,895 次标签调用约 239,475 points，低于 Pro 的 1M points；即使事件/流量为上表 10 倍，约 1.2GB 仍低于 5GB。真正的主要确定性超额是 stream-minutes：446,400 - 100,000 = 346,400，需向上购买两个 200k 包，月付 USD 100。由此月付容量基线为 **USD 298/月**；年付折合为 Pro 79 + Labels 79.20 + 两个 40 美元 stream 包 = **USD 238.20/月，预付 USD 2,858.40/年**。超过 5GB 后每额外 5GB 为 USD 50/月；超过 1M points 后每 1M points 为 USD 50/月。
+
+这仍不包含：原生 Bitcoin 实时流、书面第三方应用授权、Enterprise Kafka/SLA、超过实时窗口的可靠历史补采。若为全部 10 链购买自助 Transfers 历史包，公开月付价粗算为 8 条常规 EVM/Tron各 USD 150 + Arc USD 100 + Solana USD 500 = **USD 1,800/月额外费用**；这不是建议购买方案，只证明长中断全链补采不能算在 USD 298 内。供应商授权询问草稿见 `docs/BITQUERY_AUTHORIZATION_DRAFT.md`。
 
 任何付费方案都必须由所有者显式决定；密钥只放 Sites/GitHub 环境变量或 Secret。
 上线公开资金流页面前，须确认供应商许可覆盖公开展示与企业微信提醒；不要把购买个人计划的密钥当作公开使用授权。官方 WebSocket 的 `amounts[]` 允许一笔交易包含多种资产，必须逐资产去重并验收真实格式。

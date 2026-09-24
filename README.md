@@ -92,6 +92,9 @@ scripts/collect-gmgn.mjs     GitHub Actions侧采集器
 | `REOWN_PROJECT_ID` | Reown AppKit 前端项目 ID；需要域名限制 |
 | `FEATURE_WALLET_CONNECT` | 只读钱包连接开关，默认 `false` |
 | `KOL_ALERT_MAX_MARKET_CAP` | KOL首次与升级预警的市值上限，默认 `20000000` |
+| `NEW_LISTINGS_FEED_ENABLED` | Coinbase/Upbit 第三方提前发现适配器，默认 `false` |
+| `BITQUERY_ENABLED` | Bitquery 资金流采集器总开关，默认 `false` |
+| `BITQUERY_PUBLIC_DISTRIBUTION_APPROVED` | 已取得公开网页和企微再分发书面许可后才可设为 `true` |
 
 ## 本地开发与验证
 

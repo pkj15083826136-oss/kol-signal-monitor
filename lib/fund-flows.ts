@@ -56,3 +56,71 @@ export function normalizeWhaleAlerts(input: JsonRecord, discoveredAt = new Date(
     return row ? [row] : [];
   });
 }
+
+export type BitqueryAddressLabel = { address: string; chain?: string; type: string; value: string; recordedAt?: string | null };
+
+function addressOf(value: unknown) {
+  const row = asRecord(value);
+  return String(row.Address || row.address || value || "").trim();
+}
+
+function entityFromLabels(address: string, labels: BitqueryAddressLabel[]) {
+  const relevant = labels.filter((label) => label.address.toLowerCase() === address.toLowerCase());
+  const exchange = relevant.find((label) => /^cex-(?:hot|cold|deposit|withdrawal)-?(?:address|wallet)?$/i.test(label.type));
+  const bridge = relevant.find((label) => /bridge/i.test(label.type));
+  const selected = exchange || bridge || relevant[0];
+  if (!selected) return { entity: null, source: null, confidence: "unverified" as const };
+  return { entity: selected.value, source: `Bitquery Metadata.Labels:${selected.type}`, confidence: "provider_attributed" as const };
+}
+
+/** Accepts the documented Bitquery V2 EVM, Tron and Solana Transfers response shape. */
+export function normalizeBitqueryTransfers(input: unknown, chain: string, labels: BitqueryAddressLabel[] = [], discoveredAt = new Date().toISOString()) {
+  const data = asRecord(asRecord(input).data || input);
+  const root = asRecord(data.EVM || data.Tron || data.Solana || data[chain]);
+  const rows = asRecords(root.Transfers);
+  return rows.flatMap((row, index) => {
+    const transfer = asRecord(row.Transfer);
+    const transaction = asRecord(row.Transaction);
+    const block = asRecord(row.Block);
+    const amountUsd = Number(transfer.AmountInUSD ?? transfer.amountInUsd ?? 0);
+    const amount = Number(transfer.Amount ?? transfer.amount ?? 0);
+    const txHash = String(transaction.Hash || transaction.Signature || transaction.hash || "").trim();
+    const currency = asRecord(transfer.Currency);
+    const symbol = String(currency.Symbol || currency.symbol || "").trim().toUpperCase();
+    const fromAddress = addressOf(transfer.Sender);
+    const toAddress = addressOf(transfer.Receiver);
+    if (!Number.isFinite(amountUsd) || amountUsd < MIN_FLOW_USD || !Number.isFinite(amount) || amount <= 0 || !txHash || !symbol || !fromAddress || !toAddress) return [];
+    const from = entityFromLabels(fromAddress, labels);
+    const to = entityFromLabels(toAddress, labels);
+    const classified = classifyFlow(from.entity, to.entity);
+    const occurred = new Date(String(block.Time || discoveredAt));
+    const chainOccurredAt = Number.isFinite(occurred.getTime()) ? occurred.toISOString() : discoveredAt;
+    const transferId = String(transfer.Id ?? transfer.Index ?? index);
+    return [{
+      eventKey: `bitquery:${chain}:${txHash}:${transferId}:${symbol}`,
+      provider: "bitquery",
+      chain,
+      symbol,
+      amount: String(transfer.Amount),
+      amountUsd,
+      priceUsd: amountUsd / amount,
+      priceAt: chainOccurredAt,
+      txHash,
+      fromAddress,
+      toAddress,
+      fromEntity: from.entity,
+      toEntity: to.entity,
+      fromLabelSource: from.source,
+      toLabelSource: to.source,
+      labelConfidence: from.confidence === "provider_attributed" || to.confidence === "provider_attributed" ? "provider_attributed" : "unverified",
+      direction: classified.direction,
+      classification: classified.classification,
+      countsTowardNetflow: classified.countsTowardNetflow,
+      institutionTradeSide: null,
+      bridgeName: classified.classification === "bridge" ? (from.entity || to.entity) : null,
+      chainOccurredAt,
+      discoveredAt,
+      rawFingerprint: `${chain}:${txHash}:${transferId}:${symbol}:${amountUsd}:${from.entity || ""}:${to.entity || ""}`,
+    }];
+  });
+}

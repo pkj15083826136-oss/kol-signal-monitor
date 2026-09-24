@@ -11,27 +11,33 @@ on:
       - "scripts/collect-exchange-events.mjs"
       - "scripts/binance-spot-snapshot.mjs"
       - "scripts/collect-whale-alert.mjs"
+      - "scripts/collect-bitquery.mjs"
+      - "scripts/collect-new-listings-feed.mjs"
       - "scripts/collect-upbit-announcements.mjs"
       - "scripts/run-exchange-loop.mjs"
       - "app/api/exchange-events/**"
       - "app/api/fund-flows/**"
       - "lib/exchange-intelligence.ts"
 
+concurrency:
+  group: market-intelligence-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   exchange:
     runs-on: ubuntu-latest
-    timeout-minutes: 59
+    timeout-minutes: 29
     steps:
       - uses: actions/checkout@v4
       - name: Minute exchange monitoring
         env:
           SITE_URL: ${{ secrets.SITE_URL }}
           MONITOR_SECRET: ${{ secrets.MONITOR_SECRET }}
-          COLLECTOR_DURATION_MS: "3300000"
+          COLLECTOR_DURATION_MS: "1500000"
         run: node scripts/run-exchange-loop.mjs
   upbit-announcements:
     runs-on: ubuntu-latest
-    timeout-minutes: 38
+    timeout-minutes: 29
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -48,11 +54,33 @@ jobs:
           MONITOR_SECRET: ${{ secrets.MONITOR_SECRET }}
           UPBIT_ACCESS_KEY: ${{ secrets.UPBIT_ACCESS_KEY }}
           UPBIT_SECRET_KEY: ${{ secrets.UPBIT_SECRET_KEY }}
-          COLLECTOR_DURATION_MS: "1980000"
+          COLLECTOR_DURATION_MS: "1500000"
         run: node scripts/collect-upbit-announcements.mjs
+  new-listings-feed:
+    if: ${{ vars.NEW_LISTINGS_FEED_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 29
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Coinbase and Upbit third-party discovery feed
+        env:
+          SITE_URL: ${{ secrets.SITE_URL }}
+          MONITOR_SECRET: ${{ secrets.MONITOR_SECRET }}
+          NLF_API_KEY: ${{ secrets.NLF_API_KEY }}
+          NEW_LISTINGS_FEED_ENABLED: ${{ vars.NEW_LISTINGS_FEED_ENABLED }}
+          COLLECTOR_DURATION_MS: "1500000"
+        run: node scripts/collect-new-listings-feed.mjs
   fund-flow:
     runs-on: ubuntu-latest
-    timeout-minutes: 38
+    timeout-minutes: 29
     steps:
       - uses: actions/checkout@v4
       - name: Real-time attributed fund flow
@@ -60,5 +88,28 @@ jobs:
           SITE_URL: ${{ secrets.SITE_URL }}
           MONITOR_SECRET: ${{ secrets.MONITOR_SECRET }}
           WHALE_ALERT_API_KEY: ${{ secrets.WHALE_ALERT_API_KEY }}
-          COLLECTOR_DURATION_MS: "1980000"
+          COLLECTOR_DURATION_MS: "1500000"
         run: node scripts/collect-whale-alert.mjs
+  bitquery-fund-flow:
+    if: ${{ vars.BITQUERY_ENABLED == 'true' && vars.BITQUERY_PUBLIC_DISTRIBUTION_APPROVED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 29
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Licensed Bitquery large-transfer streams
+        env:
+          SITE_URL: ${{ secrets.SITE_URL }}
+          MONITOR_SECRET: ${{ secrets.MONITOR_SECRET }}
+          BITQUERY_ACCESS_TOKEN: ${{ secrets.BITQUERY_ACCESS_TOKEN }}
+          BITQUERY_ENABLED: ${{ vars.BITQUERY_ENABLED }}
+          BITQUERY_PUBLIC_DISTRIBUTION_APPROVED: ${{ vars.BITQUERY_PUBLIC_DISTRIBUTION_APPROVED }}
+          COLLECTOR_DURATION_MS: "1500000"
+        run: node scripts/collect-bitquery.mjs

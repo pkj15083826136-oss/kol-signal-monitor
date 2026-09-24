@@ -17,7 +17,7 @@
 - Git 默认分支：`main`
 - 调度器位于 GitHub Actions，调用 `/api/monitor/run`。
 
-`codex/exchange-fund-flow` 分支正在开发两个隔离栏目，迁移为 `drizzle/0020_flowery_the_hunter.sql`。截至 2026-09-24 只在本地 D1 验证，未迁移生产、未合并 main、未发布。交易所官方公告 8/10 接通；长跑已修复部分交易对响应误报、任务串行漂移、Upbit pong 超时和 Binance 大快照中转问题，最终单轮 52.642 秒。Coinbase 缺 X app-only bearer，Upbit 缺无交易权限的 Announcement WebSocket key 与固定出口 IPv4。资金流因公开展示/企微再分发许可和真实 key 未取得而保持 BLOCKED；详细来源、费用、链路样本和限制见 `docs/MARKET_INTELLIGENCE.md`。
+`codex/exchange-fund-flow` 分支正在开发两个隔离栏目，迁移为 `drizzle/0020_flowery_the_hunter.sql`。截至 2026-09-24 只在本地 D1 验证，未迁移生产、未合并 main、未发布。交易所官方公告 8/10 接通；Coinbase、Upbit 的官方公开交易对快照继续运行，提前公告覆盖不足不构成删除交易所的理由。New Listings Feed 免费档已按官方 `/v2/full` 文档完成默认关闭适配器和契约测试，但没有真实 key 实测，页面只能称“第三方发现”。Bitquery 10 条核心链 Transfers、美元门槛、标签、去重、重连和 realtime-window 补采适配器已经实现，并以采集器、GitHub job、Site API 三道许可开关默认关闭；未获得公开展示/企微授权且未读取真实数据，资金流仍为 BLOCKED。逐链容量、费用模型和未发送的授权询问草稿见 `docs/MARKET_INTELLIGENCE.md` 与 `docs/BITQUERY_AUTHORIZATION_DRAFT.md`。
 
 不要创建新 Site、不要更换 D1 绑定、不要把生产密钥复制进本地文件。
 
