@@ -26,6 +26,8 @@ describe("radar market enrichment and source status", () => {
     const proxy = readFileSync("app/api/radar/avatar/route.ts", "utf8");
     expect(proxy).toContain("upstream.arrayBuffer()");
     expect(proxy).toContain("AbortSignal.timeout(10_000)");
+    expect(proxy).toContain('redirect: "manual"');
+    expect(proxy).not.toContain('redirect: "error"');
   });
 
   it("uses Ave, GMGN, OKX then identicon avatar priority", () => {
