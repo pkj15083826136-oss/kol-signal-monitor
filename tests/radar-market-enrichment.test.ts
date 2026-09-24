@@ -123,7 +123,7 @@ describe("radar market enrichment and source status", () => {
     const supervisor = readFileSync("scripts/run-ave-smart-supervisor.ps1", "utf8");
     const installer = readFileSync("scripts/install-ave-smart-autostart.ps1", "utf8");
     expect(supervisor).toContain("ave-supervisor.pid");
-    expect(supervisor).toContain("KOLSignalMonitorAveSmartSupervisor");
+    expect(supervisor).toContain("ave-supervisor.lock");
     expect(supervisor).toContain("ave-supervisor.log");
     expect(supervisor).toContain("Stop-StaleCollectorBrowsers");
     expect(supervisor).toContain("Start-Process");
@@ -131,5 +131,6 @@ describe("radar market enrichment and source status", () => {
     expect(installer).toContain("AtLogOn");
     expect(installer).toContain("Get-Command node");
     expect(installer).toContain("-NodePath");
+    expect(installer).toContain("-StateRoot");
   });
 });
