@@ -19,5 +19,8 @@ declare namespace Cloudflare {
     BSC_RPC_URL?: string;
     BASE_RPC_URL?: string;
     ROBINHOOD_RPC_URL?: string;
+    EXCHANGE_GOOGLE_TRANSLATION_ENABLED?: string;
+    GOOGLE_TRANSLATE_API_KEY?: string;
+    EXCHANGE_TRANSLATION_MONTHLY_CHARACTER_LIMIT?: string;
   }
 }

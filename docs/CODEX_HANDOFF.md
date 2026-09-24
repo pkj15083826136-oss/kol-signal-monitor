@@ -17,7 +17,7 @@
 - Git 默认分支：`main`
 - 调度器位于 GitHub Actions，调用 `/api/monitor/run`。
 
-`codex/exchange-fund-flow` 分支正在开发两个隔离栏目，迁移为 `drizzle/0020_flowery_the_hunter.sql`。截至 2026-09-24 只在本地 D1 验证，未迁移生产、未合并 main、未发布。交易所官方公告 8/10 接通；Coinbase、Upbit 的官方公开交易对快照继续运行，提前公告覆盖不足不构成删除交易所的理由。New Listings Feed 免费档已按官方 `/v2/full` 文档完成默认关闭适配器和契约测试，但没有真实 key 实测，页面只能称“第三方发现”。Bitquery 10 条核心链 Transfers、美元门槛、标签、去重、重连和 realtime-window 补采适配器已经实现，并以采集器、GitHub job、Site API 三道许可开关默认关闭；未获得公开展示/企微授权且未读取真实数据，资金流仍为 BLOCKED。逐链容量、费用模型和未发送的授权询问草稿见 `docs/MARKET_INTELLIGENCE.md` 与 `docs/BITQUERY_AUTHORIZATION_DRAFT.md`。
+`codex/exchange-fund-flow` 分支正在开发两个隔离栏目，基础迁移为 `drizzle/0020_flowery_the_hunter.sql`，中文标题字段追加在 `drizzle/0021_wandering_mandarin.sql`。截至 2026-09-25 只在本地 D1 验证，未迁移生产、未合并 main、未发布。交易所官方公告 8/10 接通；Coinbase、Upbit 的官方公开交易对快照继续运行，提前公告覆盖不足不构成删除交易所的理由。公告原文保存在 `title`，中文译文、翻译来源、原文哈希、状态和字符计费分别保存；标准标题使用确定性规则，Google Cloud Translation 适配器默认关闭，修订后必须按新原文哈希重译，失败时页面展示原文并标记“暂未翻译”。New Listings Feed 免费档已按官方 `/v2/full` 文档完成默认关闭适配器和契约测试，但没有真实 key 实测，页面只能称“第三方发现”。Bitquery 10 条核心链 Transfers、美元门槛、标签、去重、重连和 realtime-window 补采适配器已经实现，并以采集器、GitHub job、Site API 三道许可开关默认关闭；未获得公开展示/企微授权且未读取真实数据，资金流仍为 BLOCKED。逐链容量、费用模型和未发送的授权询问草稿见 `docs/MARKET_INTELLIGENCE.md` 与 `docs/BITQUERY_AUTHORIZATION_DRAFT.md`。
 
 不要创建新 Site、不要更换 D1 绑定、不要把生产密钥复制进本地文件。
 

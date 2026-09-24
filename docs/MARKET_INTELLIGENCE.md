@@ -56,6 +56,14 @@ Upbit Announcement WebSocket 文档明确该功能“不属于任何权限组”
 - WebSocket 没有 replay，供应商也明确不保证完整覆盖。断线后只能依靠本项目持续运行的 Coinbase/Upbit 官方交易对快照补发现“已实际开通/关闭”，无法补回所有提前公告正文或第三方发现时刻。
 - 产品页称免费档可用于 monitoring，自动转发时要求注明 New Listings Feed；未找到一份更完整、可下载的再分发许可文本。因此当前只完成适配器与官方文档格式契约测试，`NEW_LISTINGS_FEED_ENABLED` 默认 `false`，尚未用真实免费 key 实测，不把它写成已接通。
 - 一旦实测，事件 `source_kind` 固定为 `third_party_discovery`，页面显示“第三方发现 · New Listings Feed”，绝不称为官方直采。事件身份使用 `exchange + 原始来源 URL + 事件/市场类型`，不使用供应商明确声明跨边缘不稳定的 `id`。
+
+### 公告中文化与翻译费用
+
+- `title` 永久保存官方原文；`title_zh`、翻译状态、供应商、原文哈希、错误、翻译时间和计费字符数单独保存。公告修订导致原文哈希变化时，旧译文会被清除并重新生成，不能继续展示旧版本翻译。
+- 标准上币、下架、交易对、永续合约及 Binance Alpha 标题优先使用确定性短语规则，交易所名、代币简称、交易对、合约地址、日期和数字不改写。没有可靠规则时显示原文和“暂未翻译”。搜索同时匹配 `title` 与 `title_zh`。
+- 已实现但默认关闭 Google Cloud Translation Basic v2 适配器。官方价格为每月前 500,000 字符免费额度（以每月 USD 10 credit 形式），之后 USD 20/百万字符；本项目硬上限固定不超过 450,000 字符/月，并只对新标题或原文修订调用一次。启用时页面必须显示“由 Google 自动翻译”，遵守 Google 归因要求。
+- 适配器会验证交易所名、全大写币种/交易对、地址和数字仍原样存在；验证失败不保存译文。`EXCHANGE_GOOGLE_TRANSLATION_ENABLED` 默认 `false`，密钥只允许放 `GOOGLE_TRANSLATE_API_KEY` 环境变量，未经项目所有者决定不会启用计费服务。
+- 官方依据：<https://cloud.google.com/products/translate/pricing>、<https://docs.cloud.google.com/translate/docs/reference/rest/v2/translate>、<https://docs.cloud.google.com/translate/attribution>、<https://cloud.google.com/terms/service-terms/index-20230524>。
 - 参考：<https://newlistings.pro/docs/v2/full>、<https://newlistings.pro/docs/faq>、<https://newlistings.pro/exchanges/coinbase>、<https://newlistings.pro/exchanges/upbit>、<https://newlistings.pro/websocket>。
 
 ## 大额资金流向

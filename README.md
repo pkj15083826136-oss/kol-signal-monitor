@@ -95,6 +95,9 @@ scripts/collect-gmgn.mjs     GitHub Actions侧采集器
 | `NEW_LISTINGS_FEED_ENABLED` | Coinbase/Upbit 第三方提前发现适配器，默认 `false` |
 | `BITQUERY_ENABLED` | Bitquery 资金流采集器总开关，默认 `false` |
 | `BITQUERY_PUBLIC_DISTRIBUTION_APPROVED` | 已取得公开网页和企微再分发书面许可后才可设为 `true` |
+| `EXCHANGE_GOOGLE_TRANSLATION_ENABLED` | 非标准公告标题的 Google Cloud Translation 开关，默认 `false` |
+| `GOOGLE_TRANSLATE_API_KEY` | Google Cloud Translation Basic v2 密钥；只放环境变量 |
+| `EXCHANGE_TRANSLATION_MONTHLY_CHARACTER_LIMIT` | 翻译月度硬上限，默认及最大 `450000` 字符 |
 
 ## 本地开发与验证
 
