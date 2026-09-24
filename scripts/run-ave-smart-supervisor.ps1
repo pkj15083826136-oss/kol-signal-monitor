@@ -8,12 +8,9 @@ $siteUrl = "https://kol-signal-monitor.pkj15083826136.chatgpt.site"
 $projectRoot = Split-Path $PSScriptRoot -Parent
 
 New-Item -ItemType Directory -Force -Path $stateRoot, $profileDir | Out-Null
-if (Test-Path -LiteralPath $supervisorPidFile) {
-  $existingPid = [int](Get-Content -Raw -LiteralPath $supervisorPidFile)
-  $existing = Get-CimInstance Win32_Process -Filter "ProcessId = $existingPid" -ErrorAction SilentlyContinue
-  if ($existing -and $existing.CommandLine -match 'run-ave-smart-supervisor\.ps1') { Write-Host "Ave Smart supervisor is already running."; exit 0 }
-  Remove-Item -LiteralPath $supervisorPidFile -Force -ErrorAction SilentlyContinue
-}
+$createdNew = $false
+$supervisorMutex = New-Object System.Threading.Mutex($true, "Local\KOLSignalMonitorAveSmartSupervisor", [ref]$createdNew)
+if (-not $createdNew) { Write-Host "Ave Smart supervisor is already running."; $supervisorMutex.Dispose(); exit 0 }
 Set-Content -LiteralPath $supervisorPidFile -Value $PID -Encoding ascii
 
 function Write-SupervisorLog([string]$Message) {
@@ -56,6 +53,8 @@ try {
   Write-SupervisorLog "supervisor_stopped pid=$PID"
   Remove-Item Env:\AVE_COLLECTOR_SECRET -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $supervisorPidFile -Force -ErrorAction SilentlyContinue
+  if ($createdNew) { $supervisorMutex.ReleaseMutex() }
+  $supervisorMutex.Dispose()
   $plainSecret = $null
   $secureSecret = $null
 }
