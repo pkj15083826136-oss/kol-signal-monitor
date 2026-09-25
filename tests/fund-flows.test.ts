@@ -1,5 +1,5 @@
 import { describe,expect,it } from "vitest";
-import { classifyFlow,normalizeBitqueryTransfers,normalizePublicRpcTransfer,normalizeWhaleAlert,normalizeWhaleAlerts } from "@/lib/fund-flows";
+import { classifyFlow,normalizeBitqueryTransfers,normalizePublicRpcTransfer,normalizePublicStablecoinMint,normalizeWhaleAlert,normalizeWhaleAlerts } from "@/lib/fund-flows";
 describe("large fund flow classification",()=>{
   it("uses outflow-minus-inflow sign inputs without claiming a trade",()=>{expect(classifyFlow("unknown","Binance")).toEqual({direction:"inflow",classification:"exchange_inflow",countsTowardNetflow:true});expect(classifyFlow("Coinbase","unknown")).toEqual({direction:"outflow",classification:"exchange_outflow",countsTowardNetflow:true})});
   it("excludes internal, same-entity and bridge movements",()=>{expect(classifyFlow("Binance","Coinbase").countsTowardNetflow).toBe(false);expect(classifyFlow("Kraken","Kraken").classification).toBe("same_entity");expect(classifyFlow("Wormhole Bridge","Binance").classification).toBe("bridge")});
@@ -27,5 +27,17 @@ describe("large fund flow classification",()=>{
     expect(row).toMatchObject({provider:"public_rpc",direction:"inflow",classification:"exchange_inflow",countsTowardNetflow:true,toEntity:"Binance",labelConfidence:"official_disclosure",valuationMethod:"stablecoin_nominal_usd",institutionTradeSide:null});
     expect(normalizePublicRpcTransfer({...base,amount:9_999_999})).toBeNull();
     expect(normalizePublicRpcTransfer({...base,fromAddress:"0x3333333333333333333333333333333333333333",toAddress:"0x4444444444444444444444444444444444444444"})).toBeNull();
+  });
+  it("uses verified event-time pricing for UNI and preserves raw token data",()=>{
+    const tracked="0x1111111111111111111111111111111111111111";
+    const row=normalizePublicRpcTransfer({chain:"ethereum",txHash:`0x${"b".repeat(64)}`,logIndex:3,symbol:"UNI",tokenContract:"0x1f9840a85d5af5bf1d1762f925bdaddc4201f984",rawAmount:"2000000000000000000000000",amount:"2000000",priceUsd:6,priceAt:"2026-09-25T01:02:00Z",priceSource:"Chainlink UNI/USD",fromAddress:tracked,toAddress:"0x2222222222222222222222222222222222222222",trackedEntities:[{address:tracked,exchange:"Bybit",source:"Bybit 官方储备证明"}],blockTimestamp:"2026-09-25T01:02:03Z"})!;
+    expect(row).toMatchObject({symbol:"UNI",amountUsd:12_000_000,fromEntity:"Bybit",direction:"outflow",tokenContract:"0x1f9840a85d5af5bf1d1762f925bdaddc4201f984",rawAmount:"2000000000000000000000000",valuationStatus:"verified"});
+    expect(normalizePublicRpcTransfer({...row,txHash:`0x${"c".repeat(64)}`,fromAddress:tracked,toAddress:"0x2222222222222222222222222222222222222222",trackedEntities:[{address:tracked,exchange:"Bybit",source:"Bybit 官方储备证明"}],amount:"2000000",priceUsd:0})).toBeNull();
+  });
+  it("publishes only confirmed stablecoin contract mints strictly above one hundred million",()=>{
+    const base={chain:"ethereum",txHash:`0x${"d".repeat(64)}`,logIndex:2,symbol:"USDC",tokenContract:"0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",rawAmount:"100000001000000",amount:"100000001",evidenceType:"circle_mint_event",blockTimestamp:"2026-09-25T01:02:03Z"};
+    expect(normalizePublicStablecoinMint(base)).toMatchObject({issuer:"Circle",amountUsd:100_000_001,issuanceClassification:"onchain_mint_inventory_status_unverified"});
+    expect(normalizePublicStablecoinMint({...base,amount:"100000000"})).toBeNull();
+    expect(normalizePublicStablecoinMint({...base,evidenceType:"transfer"})).toBeNull();
   });
 });

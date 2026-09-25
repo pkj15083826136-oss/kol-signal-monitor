@@ -1,42 +1,47 @@
-# 免费资金流单实例采集器运行手册
+# 免费资金流生产采集器运行手册
 
-## 结论
+## 生产拓扑与发布闸门
 
-现有 Windows 常开机器具备 Node.js、仓库 checkout 和可访问本地/远端 Site API 的运行条件，可以独立运行 `scripts/collect-public-stablecoin-flows.mjs`。脚本使用 `.sites-runtime/public-flow-collector.lock` 做同一 checkout、同一机器上的单实例保护；崩溃遗留且 PID 已不存在的锁会在下次启动时清理。它不是跨机器分布式锁，因此不要同时启用 GitHub job 与常开机器实例。
+生产方案为 `GitHub Actions 标准 Ubuntu runner → Site /api/fund-flows/collect → 生产 D1 → /flows`。主工作流是 `.github/workflows/public-flow-continuous.yml`，不依赖所有者电脑；电脑关闭后仍会由 GitHub 托管 runner 运行。仓库为 public，GitHub 官方当前说明 public repository 的 standard GitHub-hosted runners 免费且不限分钟，预计增量运行费用为 0 美元。默认使用无需注册或密钥的 Tenderly 公共 Ethereum 网关，费用 0 美元；该匿名端点没有公开固定配额或 SLA，因此任何失败都会保留游标并在页面显式降级。生产 D1 是否产生增量费用取决于 Site 所在 Cloudflare 账户用量，免费层为每天 500 万行读取、10 万行写入和总计 5 GB 存储，超限时请求会失败而不是伪造零结果。
 
-BlockPI 官方提供无需账户或密钥的公共 Ethereum 端点，并明确供开发者构建应用；采集器只读取公开链上数据，不代理 RPC。`PUBLIC_FLOW_ENABLED` 目前仍保持关闭，因为本分支没有通过最终生产发布验收，而不是等待所有者注册、购买或写授权邮件。
+本分支尚未迁移生产 D1、合并或发布，因此该拓扑当前是“代码与本地真实数据已验证、生产链路待发布”。只有完成项目规定回归、所有者亲自完成 EVM/Solana 只读连接烟测、迁移 `0020`—`0023`、发布同一个 Site 并启用 `PUBLIC_FLOW_ENABLED=true` 后，才能把它称为线上持续采集。
 
-## 必需配置
+## 单实例、重启与补采
 
-| 变量 | 值 / 说明 |
-| --- | --- |
-| `SITE_URL` | 目标 Site 根 URL；本地预览为 `http://127.0.0.1:8787` |
-| `MONITOR_SECRET` | 既有采集 API 只读写入鉴权；只放受保护的机器环境，不写脚本、任务参数或日志 |
-| `ETHEREUM_RPC_URL` | 可选；不配置时使用 BlockPI 公共 Ethereum endpoint，无需注册或密钥 |
-| `PUBLIC_FLOW_CONTINUOUS` | 常驻单实例设为 `true` |
-| `PUBLIC_FLOW_POLL_MS` | 默认 `60000`；不得为规避限流而开多个进程 |
-| `PUBLIC_FLOW_INITIAL_BACKFILL_BLOCKS` | 默认 `7200` |
-| `PUBLIC_FLOW_CONFIRMATIONS` | 默认 `12` |
-| `PUBLIC_FLOW_BLOCK_CHUNK` | 默认 `100`、最大 `500`；公共端点超时则调小 |
-| `PUBLIC_FLOW_ADDRESS_BATCH` | 默认 `8`、最大 `16`；控制单次日志主题中的已知地址数 |
-| `PUBLIC_FLOW_RPC_BATCH_SIZE` | 默认且最大 `10`，符合 BlockPI 公共端点 batch 限制 |
-| `PUBLIC_FLOW_LOCK_FILE` | 可选；默认在当前 checkout 的 `.sites-runtime` 下 |
+- 工作流固定 concurrency group `public-flow-production-singleton`，`cancel-in-progress: false`，同一时间只有一个生产采集任务。
+- 每 5 分钟产生一个接棒调度；每个 runner 持续轮询约 340 分钟并在 GitHub-hosted runner 的 6 小时上限前主动退出。排队和调度没有服务等级保证，接棒可能延迟数分钟。
+- 采集器每 60 秒获取已确认区块，D1 中 `fund_flow_collector_state.cursor` 是唯一续跑游标。只有传输事件、铸造事件和健康状态全部写入成功后才推进；RPC、Site API 或 D1 失败会从旧游标重扫。地址集合指纹发生变化时，游标自动回退并重扫最近 7,200 个确认区块；事件唯一键保证补采和重试不会重复入库。
+- 连续失败按 1、2、4 分钟退避，最多 5 分钟；默认连续 5 轮失败后进程以失败退出，GitHub Actions 标记 failed 并按账户通知设置发出失败通知。工作流超时或进程崩溃也会失败，下一轮调度自动重启。
+- `/api/fund-flows` 暴露最近心跳、成功时间、游标、错误和覆盖 JSON；网页在心跳超过 3 分钟时显示“采集心跳已过期”，空结果不解释为零流量。
+- 脚本仍保留 checkout 内 `.sites-runtime/public-flow-collector.lock`，用于本地验收防重复；跨机器的生产单实例由 Actions concurrency 保证。
 
-## 启动与守护
+## 生产配置
 
-1. 用专用、非管理员 Windows 用户运行，仓库目录只授予该用户所需权限。
-2. 将环境变量配置到该用户的受保护运行环境；不要把 `MONITOR_SECRET` 放入 Git、聊天、计划任务命令行或桌面快捷方式。
-3. 在该 checkout 中先运行一次非连续模式，确认页面健康状态、D1 游标和真实交易链接均正确。
-4. 创建“系统启动或用户登录时”运行的 Windows 计划任务，操作仅为 Node 执行采集脚本，工作目录固定为仓库根目录；勾选“若任务已运行则不启动新实例”和失败后 1、5、15 分钟重启。
-5. 设置 `PUBLIC_FLOW_CONTINUOUS=true` 后启动。脚本每轮一分钟；连续失败按 1、2、4 分钟递增并封顶 5 分钟。下一次成功从 Site D1 保存的区块游标继续，失败分片不会推进游标。
-6. 不要同时启用 `.github/workflows/market-intelligence.yml` 的 public-flow job。若迁移运行机器，先停旧任务并确认锁文件释放，再启动新任务。
+| 配置 | 位置 | 说明 |
+| --- | --- | --- |
+| `SITE_URL` | GitHub Actions secret | 原 Site 根地址；不得指向 `127.0.0.1` |
+| `MONITOR_SECRET` | GitHub Actions secret 与 Site secret | 采集写入鉴权；两端值一致，不写日志或仓库 |
+| `PUBLIC_FLOW_ENABLED` | GitHub Actions repository variable | 最终验收前保持 `false`，发布后才改为 `true` |
+| `ETHEREUM_RPC_URL` | 可选 GitHub Actions secret/variable | 默认 Tenderly 公共主网网关；不需要为默认值注册 |
+| `PUBLIC_FLOW_CONTINUOUS` | 工作流固定 | `true` |
+| `PUBLIC_FLOW_POLL_MS` | 工作流固定 | `60000` |
+| `PUBLIC_FLOW_RPC_BATCH_SIZE` | 可选工作流变量 | 默认及硬上限 `5`；已实测默认网关接受 5 项批量区块查询 |
+| `COLLECTOR_DURATION_MS` | 工作流固定 | `20400000`，约 340 分钟后正常交棒 |
+| `PUBLIC_FLOW_MAX_FAILURES` | 工作流固定 | `5` |
 
-## 故障恢复
+## 当前真实覆盖
 
-- 正常重启：停止计划任务，等待 Node 进程退出；锁文件会释放。重启后从 D1 游标继续。
-- 进程崩溃：计划任务按退避重启；新进程确认旧 PID 不存在后清理陈旧锁。
-- RPC 失败或部分响应：健康状态变为 `degraded/reconnecting`，当前分片游标不推进；恢复后重扫并由事件键去重。
-- Site API/D1 不可用：不推进游标；恢复后从上次成功区块补采。
-- 地址披露异常缩减：当 Binance PoR 地址数量低于上次 70% 时停止推进并显示错误，避免把部分地址响应当完整覆盖。
-- 长时间停机：默认按游标补采；若 RPC 不支持所需历史范围，保持失败可见，不手动跳过游标，也不把缺口显示为零流量。
-- 双实例：第二个进程在取得 RPC 数据前直接失败并报告现有 PID。只在确认该 PID 已不存在时才删除锁；不要以复制 checkout 的方式规避锁。
+- 链：Ethereum mainnet。
+- 地址：Binance 官方 PoR API 当前 32 个直接 ETH 地址；Bybit 官方 PoR 审计文件 7 个 Ethereum 地址；OKX 官方 2026-09-08 PoR 储备 CSV 中按 ETH 余额排序的前 20 个 Ethereum 地址（快照区块 25,926,528，官方文件共披露 8,817 个 ETH 地址）。
+- 资产：USDT、USDC；UNI 已完成事件时 Chainlink UNI/USD 历史区块估值，但尚未捕获达到 1,000 万美元门槛的真实样本。
+- 增发：USDT `Issue(uint256)` 与 USDC `Mint(address,address,uint256)` 原生合约事件，必须严格大于 1 亿美元；与普通 Transfer 分流去重。链上铸造不等于已进入流通，库存状态保持待核实。
+- 明确不覆盖：未披露充值地址、其他链、无可靠事件时价格的代币、合约路由及链下内部账务。OKX 仅覆盖上述 20 地址子集；Coinbase、Upbit、Kraken、Bitget、Gate、MEXC、HTX 当前地址数为 0，网页显示覆盖不足。
+
+## 故障恢复步骤
+
+1. 查看 Actions 的 `Public fund-flow continuous collector` 失败步骤和 Site `/api/fund-flows` 健康状态。
+2. 不手工跳过 D1 游标；确认 RPC 与 Site API 恢复后，重新运行失败工作流或等待下一次调度。
+3. 若官方地址列表异常缩减到上次 Binance 数量的 70% 以下，采集器拒绝推进游标；先核对官方 PoR 响应。
+4. 若心跳过期但工作流仍显示运行，取消异常任务；concurrency 队列中的下一任务会接棒并从 D1 游标补采。
+5. 若匿名 RPC 持续失败，保持失败可见并等待下一次退避重试；不要自动切到条款不适合自动采集的公共源，也不要清空游标。
+6. 若免费 D1 达到每日限制，保持失败可见，等 UTC 00:00 重置或评估 Cloudflare Workers Paid（官方最低月费 5 美元）；不要清空游标或写零值。

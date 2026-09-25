@@ -1,0 +1,36 @@
+name: Public fund-flow continuous collector
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/public-flow-continuous.yml"
+      - "scripts/collect-public-stablecoin-flows.mjs"
+      - "app/api/fund-flows/**"
+      - "lib/fund-flows.ts"
+
+concurrency:
+  group: public-flow-production-singleton
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    if: ${{ vars.PUBLIC_FLOW_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Continuous public Ethereum collector
+        env:
+          SITE_URL: ${{ secrets.SITE_URL }}
+          MONITOR_SECRET: ${{ secrets.MONITOR_SECRET }}
+          PUBLIC_FLOW_CONTINUOUS: "true"
+          PUBLIC_FLOW_POLL_MS: "60000"
+          PUBLIC_FLOW_MAX_FAILURES: "5"
+          COLLECTOR_DURATION_MS: "20400000"
+        run: node scripts/collect-public-stablecoin-flows.mjs

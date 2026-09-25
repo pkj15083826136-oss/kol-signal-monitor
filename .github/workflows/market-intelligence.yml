@@ -116,15 +116,3 @@ jobs:
           BITQUERY_PUBLIC_DISTRIBUTION_APPROVED: ${{ vars.BITQUERY_PUBLIC_DISTRIBUTION_APPROVED }}
           COLLECTOR_DURATION_MS: "1500000"
         run: node scripts/collect-bitquery.mjs
-  public-stablecoin-flow:
-    if: ${{ vars.PUBLIC_FLOW_ENABLED == 'true' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 29
-    steps:
-      - uses: actions/checkout@v4
-      - name: Limited public Ethereum stablecoin flow
-        env:
-          SITE_URL: ${{ secrets.SITE_URL }}
-          MONITOR_SECRET: ${{ secrets.MONITOR_SECRET }}
-          COLLECTOR_DURATION_MS: "1500000"
-        run: node scripts/collect-public-stablecoin-flows.mjs

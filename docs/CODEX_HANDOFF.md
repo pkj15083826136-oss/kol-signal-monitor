@@ -17,7 +17,11 @@
 - Git 默认分支：`main`
 - 调度器位于 GitHub Actions，调用 `/api/monitor/run`。
 
-`codex/exchange-fund-flow` 分支正在开发两个隔离栏目，基础迁移为 `drizzle/0020_flowery_the_hunter.sql`，中文标题字段追加在 `drizzle/0021_wandering_mandarin.sql`，免费资金流来源/归属链接字段追加在 `drizzle/0022_familiar_umar.sql`。截至 2026-09-25 只在本地 D1 验证，未迁移生产、未合并 main、未发布。两个新栏目当前仅公开网页展示：采集 API 不写入或消费各自企微队列，原 KOL／土狗雷达企微路径保持不变。交易所官方公告 8/10 接通；Coinbase、Upbit 的官方公开交易对快照继续运行，提前公告覆盖不足不构成删除交易所的理由。公告原文保存在 `title`，中文译文、翻译来源、原文哈希、状态和字符计费分别保存；标准标题使用确定性规则，Google Cloud Translation 适配器默认关闭，修订后必须按新原文哈希重译，失败时页面展示原文并标记“暂未翻译”。New Listings Feed 免费档已按官方 `/v2/full` 文档完成默认关闭适配器和契约测试，但没有真实 key 实测，页面只能称“第三方发现”。Bitquery 10 条核心链 Transfers、美元门槛、标签、去重、重连和 realtime-window 补采适配器已经实现，并以采集器、GitHub job、Site API 三道许可开关默认关闭；未获得公开网页展示授权且未读取真实 Bitquery 数据。另已完成 `public_rpc` 有限覆盖链路：本地从 Binance 官方 PoR 的 32 个直接 ETH 地址回补 Ethereum USDT/USDC ≥USD 10m 真实转账，页面只称已知地址样本并保留交易/归属链接。默认 RPC 已改为无需注册的 BlockPI 公共 Ethereum 端点，采集器按官方 10 请求/秒、1,024 区块、3 MB 响应和 batch 10 限制分片；生产 `PUBLIC_FLOW_ENABLED` 继续默认关闭，原因是尚未完成最终发布验收。脚本支持本机单实例、连续运行、退避与游标恢复；配置见 `docs/PUBLIC_FLOW_ALWAYS_ON.md`。逐链容量、费用模型与免费源实测见 `docs/MARKET_INTELLIGENCE.md`，付费扩展授权草稿仅保留 `docs/BITQUERY_AUTHORIZATION_DRAFT.md`。
+`codex/exchange-fund-flow` 分支正在开发两个隔离栏目，迁移为 `0020`—`0023`；`0023_mixed_justin_hammer.sql` 新增代币合约、原始数量、价格来源、估值状态和独立稳定币铸造表。截至 2026-09-25 只在本地 D1 验证，未迁移生产、未合并 main、未发布，生产仍为 Version 87。两个新栏目只做公开网页展示，不写入或消费企微队列；原 KOL／土狗雷达企微路径不变。
+
+交易所公告状态：官方公告 8/10 接通，Coinbase、Upbit 的公开交易对快照保留，提前公告覆盖不足。资金流免费链路现覆盖 Ethereum：Binance 官方 PoR API 32 个直接地址、Bybit 官方 PoR 审计文件 7 个地址、OKX 官方 2026-09-08 PoR 储备 CSV 中按 ETH 余额排序的前 20 个地址（官方文件共披露 8,817 个 ETH 地址，明确不声称全覆盖）；USDT/USDC 真实转账已验证。UNI 使用事件区块 Chainlink UNI/USD 喂价，尚无 ≥USD 10m 真实样本。USDC 已用真实 Mint 合约事件 `0x531e8900af6d11459e9e03f77573091facd59d18999bc9a9abe112b8dfa59cb0` 验证 199,231,181.85 USDC 铸造入库；库存/流通状态保持待核实。Bybit、OKX 达标资金流真实样本仍待验证，其余七家地址覆盖为 0。
+
+生产常驻方案为独立 `.github/workflows/public-flow-continuous.yml`：公开仓库标准 GitHub runner 长轮询约 340 分钟、5 分钟调度接棒、固定 concurrency 单实例、D1 游标补采、连续失败退出和 Actions 失败通知；不依赖所有者电脑。生产 `PUBLIC_FLOW_ENABLED` 保持关闭，必须先完成完整回归、所有者亲自执行 EVM/Solana 只读钱包烟测、迁移生产 D1 并发布同一 Site。配置、成本和恢复见 `docs/PUBLIC_FLOW_ALWAYS_ON.md`。
 
 不要创建新 Site、不要更换 D1 绑定、不要把生产密钥复制进本地文件。
 

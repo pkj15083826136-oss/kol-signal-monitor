@@ -62,7 +62,8 @@ export type BitqueryAddressLabel = { address: string; chain?: string; type: stri
 export type PublicRpcTransfer = {
   chain?: string; txHash?: string; logIndex?: number | string; symbol?: string; amount?: number | string;
   fromAddress?: string; toAddress?: string; blockNumber?: number | string; blockTimestamp?: string;
-  trackedAddresses?: string[]; sourceUrl?: string; attributionUrl?: string;
+  tokenContract?: string; rawAmount?: string; priceUsd?: number | string; priceAt?: string; priceSource?: string; valuationMethod?: string;
+  trackedAddresses?: string[]; trackedEntities?: Array<{ address?: string; exchange?: string; source?: string }>; sourceUrl?: string; attributionUrl?: string;
 };
 
 /** Normalizes decoded ERC-20 transfers. Attribution is accepted only for addresses in the official disclosed set. */
@@ -73,22 +74,52 @@ export function normalizePublicRpcTransfer(input: PublicRpcTransfer, discoveredA
   const amount = Number(input.amount);
   const fromAddress = String(input.fromAddress || "").toLowerCase();
   const toAddress = String(input.toAddress || "").toLowerCase();
-  const tracked = new Set((input.trackedAddresses || []).map((address) => address.toLowerCase()));
-  if (chain !== "ethereum" || !/^0x[0-9a-f]{64}$/i.test(txHash) || !["USDT", "USDC"].includes(symbol) || !Number.isFinite(amount) || amount < MIN_FLOW_USD || !/^0x[0-9a-f]{40}$/.test(fromAddress) || !/^0x[0-9a-f]{40}$/.test(toAddress)) return null;
-  const fromKnown = tracked.has(fromAddress); const toKnown = tracked.has(toAddress);
+  const legacy = (input.trackedAddresses || []).map((address) => ({ address, exchange: "Binance", source: "Binance 官方储备证明披露地址" }));
+  const tracked = new Map([...legacy, ...(input.trackedEntities || [])].map((row) => [String(row.address || "").toLowerCase(), { exchange: String(row.exchange || ""), source: String(row.source || "交易所官方披露地址") }]));
+  const stablecoin = ["USDT", "USDC"].includes(symbol);
+  const priceUsd = stablecoin ? 1 : Number(input.priceUsd);
+  const amountUsd = amount * priceUsd;
+  if (chain !== "ethereum" || !/^0x[0-9a-f]{64}$/i.test(txHash) || !symbol || !Number.isFinite(amount) || amount <= 0 || !Number.isFinite(priceUsd) || priceUsd <= 0 || !Number.isFinite(amountUsd) || amountUsd < MIN_FLOW_USD || !/^0x[0-9a-f]{40}$/.test(fromAddress) || !/^0x[0-9a-f]{40}$/.test(toAddress)) return null;
+  const fromKnown = tracked.get(fromAddress); const toKnown = tracked.get(toAddress);
   if (!fromKnown && !toKnown) return null;
-  const classified = classifyFlow(fromKnown ? "Binance" : null, toKnown ? "Binance" : null);
+  if (stablecoin && fromAddress === `0x${"0".repeat(40)}`) return null;
+  const classified = classifyFlow(fromKnown?.exchange, toKnown?.exchange);
   const chainOccurredAt = Number.isFinite(new Date(String(input.blockTimestamp)).getTime()) ? new Date(String(input.blockTimestamp)).toISOString() : discoveredAt;
-  const label = "Binance 官方储备证明披露地址";
+  const tokenContract = String(input.tokenContract || "").toLowerCase();
+  const priceAt = Number.isFinite(new Date(String(input.priceAt || chainOccurredAt)).getTime()) ? new Date(String(input.priceAt || chainOccurredAt)).toISOString() : chainOccurredAt;
   return {
     eventKey: `public_rpc:${chain}:${txHash}:${String(input.logIndex ?? 0)}:${symbol}`, provider: "public_rpc", chain, symbol,
-    amount: String(amount), amountUsd: amount, priceUsd: 1, priceAt: chainOccurredAt, valuationMethod: "stablecoin_nominal_usd",
+    tokenContract: /^0x[0-9a-f]{40}$/.test(tokenContract) ? tokenContract : null, rawAmount: input.rawAmount ? String(input.rawAmount) : null,
+    amount: String(input.amount), amountUsd, priceUsd, priceAt, priceSource: stablecoin ? "发行方 1 美元锚定名义值" : String(input.priceSource || ""), valuationMethod: stablecoin ? "stablecoin_nominal_usd" : String(input.valuationMethod || "verified_event_time_price"), valuationStatus: "verified",
     txHash, sourceUrl: String(input.sourceUrl || `https://etherscan.io/tx/${txHash}`), attributionUrl: String(input.attributionUrl || "https://www.binance.com/en/proof-of-reserves"),
-    fromAddress, toAddress, fromEntity: fromKnown ? "Binance" : null, toEntity: toKnown ? "Binance" : null,
-    fromLabelSource: fromKnown ? label : null, toLabelSource: toKnown ? label : null, labelConfidence: "official_disclosure",
+    fromAddress, toAddress, fromEntity: fromKnown?.exchange || null, toEntity: toKnown?.exchange || null,
+    fromLabelSource: fromKnown?.source || null, toLabelSource: toKnown?.source || null, labelConfidence: "official_disclosure",
     direction: classified.direction, classification: classified.classification, countsTowardNetflow: classified.countsTowardNetflow,
     institutionTradeSide: null, bridgeName: null, chainOccurredAt, discoveredAt,
     rawFingerprint: `${chain}:${txHash}:${String(input.logIndex ?? 0)}:${symbol}:${amount}:${fromAddress}:${toAddress}`,
+  };
+}
+
+export const MIN_STABLECOIN_MINT_USD = 100_000_000;
+export type PublicStablecoinMint = { chain?: string; txHash?: string; logIndex?: number | string; symbol?: string; tokenContract?: string; rawAmount?: string; amount?: number | string; recipientAddress?: string | null; blockTimestamp?: string; evidenceType?: string; sourceUrl?: string; contractEvidenceUrl?: string };
+
+/** Publishes only native issuer-contract mint/issue events strictly above USD 100m. */
+export function normalizePublicStablecoinMint(input: PublicStablecoinMint, discoveredAt = new Date().toISOString()) {
+  const chain = String(input.chain || "ethereum").toLowerCase();
+  const txHash = String(input.txHash || "").trim();
+  const symbol = String(input.symbol || "").trim().toUpperCase();
+  const tokenContract = String(input.tokenContract || "").toLowerCase();
+  const amount = Number(input.amount);
+  const evidenceType = String(input.evidenceType || "");
+  if (chain !== "ethereum" || !/^0x[0-9a-f]{64}$/i.test(txHash) || !["USDT", "USDC"].includes(symbol) || !/^0x[0-9a-f]{40}$/.test(tokenContract) || !Number.isFinite(amount) || amount <= MIN_STABLECOIN_MINT_USD || !["tether_issue_event", "circle_mint_event"].includes(evidenceType)) return null;
+  const chainOccurredAt = Number.isFinite(new Date(String(input.blockTimestamp)).getTime()) ? new Date(String(input.blockTimestamp)).toISOString() : discoveredAt;
+  const issuer = symbol === "USDT" ? "Tether" : "Circle";
+  const recipientAddress = input.recipientAddress && /^0x[0-9a-f]{40}$/i.test(input.recipientAddress) ? input.recipientAddress.toLowerCase() : null;
+  return {
+    eventKey: `public_rpc_mint:${chain}:${txHash}:${String(input.logIndex ?? 0)}:${symbol}`, provider: "public_rpc", chain, symbol, tokenContract,
+    rawAmount: String(input.rawAmount || ""), amount: String(input.amount), amountUsd: amount, txHash, logIndex: Number(input.logIndex || 0), issuer, recipientAddress,
+    evidenceType, issuanceClassification: "onchain_mint_inventory_status_unverified",
+    sourceUrl: String(input.sourceUrl || `https://etherscan.io/tx/${txHash}`), contractEvidenceUrl: String(input.contractEvidenceUrl || ""), chainOccurredAt, discoveredAt,
   };
 }
 
