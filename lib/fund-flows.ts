@@ -1,4 +1,9 @@
 export const MIN_FLOW_USD = 10_000_000;
+export const PUBLIC_FLOW_ALERT_FRESHNESS_MS = 15 * 60_000;
+export function shouldQueuePublicFlowAlert(chainOccurredAt: string, now = Date.now()) {
+  const occurred = new Date(chainOccurredAt).getTime();
+  return Number.isFinite(occurred) && occurred <= now && now - occurred <= PUBLIC_FLOW_ALERT_FRESHNESS_MS;
+}
 const exchangeWords = /(binance|coinbase|upbit|okx|bybit|kraken|bitget|gate(?:\.io)?|mexc|huobi|htx)/i;
 const bridgeWords = /(bridge|wormhole|layerzero|stargate|portal|hop protocol|across)/i;
 
@@ -58,6 +63,39 @@ export function normalizeWhaleAlerts(input: JsonRecord, discoveredAt = new Date(
 }
 
 export type BitqueryAddressLabel = { address: string; chain?: string; type: string; value: string; recordedAt?: string | null };
+
+export type PublicRpcTransfer = {
+  chain?: string; txHash?: string; logIndex?: number | string; symbol?: string; amount?: number | string;
+  fromAddress?: string; toAddress?: string; blockNumber?: number | string; blockTimestamp?: string;
+  trackedAddresses?: string[]; sourceUrl?: string; attributionUrl?: string;
+};
+
+/** Normalizes decoded ERC-20 transfers. Attribution is accepted only for addresses in the official disclosed set. */
+export function normalizePublicRpcTransfer(input: PublicRpcTransfer, discoveredAt = new Date().toISOString()) {
+  const chain = String(input.chain || "ethereum").toLowerCase();
+  const txHash = String(input.txHash || "").trim();
+  const symbol = String(input.symbol || "").trim().toUpperCase();
+  const amount = Number(input.amount);
+  const fromAddress = String(input.fromAddress || "").toLowerCase();
+  const toAddress = String(input.toAddress || "").toLowerCase();
+  const tracked = new Set((input.trackedAddresses || []).map((address) => address.toLowerCase()));
+  if (chain !== "ethereum" || !/^0x[0-9a-f]{64}$/i.test(txHash) || !["USDT", "USDC"].includes(symbol) || !Number.isFinite(amount) || amount < MIN_FLOW_USD || !/^0x[0-9a-f]{40}$/.test(fromAddress) || !/^0x[0-9a-f]{40}$/.test(toAddress)) return null;
+  const fromKnown = tracked.has(fromAddress); const toKnown = tracked.has(toAddress);
+  if (!fromKnown && !toKnown) return null;
+  const classified = classifyFlow(fromKnown ? "Binance" : null, toKnown ? "Binance" : null);
+  const chainOccurredAt = Number.isFinite(new Date(String(input.blockTimestamp)).getTime()) ? new Date(String(input.blockTimestamp)).toISOString() : discoveredAt;
+  const label = "Binance 官方储备证明披露地址";
+  return {
+    eventKey: `public_rpc:${chain}:${txHash}:${String(input.logIndex ?? 0)}:${symbol}`, provider: "public_rpc", chain, symbol,
+    amount: String(amount), amountUsd: amount, priceUsd: 1, priceAt: chainOccurredAt, valuationMethod: "stablecoin_nominal_usd",
+    txHash, sourceUrl: String(input.sourceUrl || `https://etherscan.io/tx/${txHash}`), attributionUrl: String(input.attributionUrl || "https://www.binance.com/en/proof-of-reserves"),
+    fromAddress, toAddress, fromEntity: fromKnown ? "Binance" : null, toEntity: toKnown ? "Binance" : null,
+    fromLabelSource: fromKnown ? label : null, toLabelSource: toKnown ? label : null, labelConfidence: "official_disclosure",
+    direction: classified.direction, classification: classified.classification, countsTowardNetflow: classified.countsTowardNetflow,
+    institutionTradeSide: null, bridgeName: null, chainOccurredAt, discoveredAt,
+    rawFingerprint: `${chain}:${txHash}:${String(input.logIndex ?? 0)}:${symbol}:${amount}:${fromAddress}:${toAddress}`,
+  };
+}
 
 function addressOf(value: unknown) {
   const row = asRecord(value);

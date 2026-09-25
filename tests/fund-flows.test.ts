@@ -1,5 +1,5 @@
 import { describe,expect,it } from "vitest";
-import { classifyFlow,normalizeBitqueryTransfers,normalizeWhaleAlert,normalizeWhaleAlerts } from "@/lib/fund-flows";
+import { classifyFlow,normalizeBitqueryTransfers,normalizePublicRpcTransfer,normalizeWhaleAlert,normalizeWhaleAlerts,shouldQueuePublicFlowAlert } from "@/lib/fund-flows";
 describe("large fund flow classification",()=>{
   it("uses outflow-minus-inflow sign inputs without claiming a trade",()=>{expect(classifyFlow("unknown","Binance")).toEqual({direction:"inflow",classification:"exchange_inflow",countsTowardNetflow:true});expect(classifyFlow("Coinbase","unknown")).toEqual({direction:"outflow",classification:"exchange_outflow",countsTowardNetflow:true})});
   it("excludes internal, same-entity and bridge movements",()=>{expect(classifyFlow("Binance","Coinbase").countsTowardNetflow).toBe(false);expect(classifyFlow("Kraken","Kraken").classification).toBe("same_entity");expect(classifyFlow("Wormhole Bridge","Binance").classification).toBe("bridge")});
@@ -19,5 +19,19 @@ describe("large fund flow classification",()=>{
   it("supports the documented Solana shape and rejects missing or sub-threshold USD valuation",()=>{
     const payload={data:{Solana:{Transfers:[{Block:{Time:"2026-09-24T01:02:03Z"},Transaction:{Signature:"sig"},Transfer:{Id:"1",Amount:"5000",AmountInUSD:"11000000",Sender:{Address:"sender"},Receiver:{Address:"receiver"},Currency:{Symbol:"SOL"}}},{Block:{Time:"2026-09-24T01:02:04Z"},Transaction:{Signature:"low"},Transfer:{Id:"2",Amount:"1",AmountInUSD:"9999999",Sender:{Address:"a"},Receiver:{Address:"b"},Currency:{Symbol:"SOL"}}}]}}};
     const rows=normalizeBitqueryTransfers(payload,"solana",[],"2026-09-24T01:03:00Z");expect(rows).toHaveLength(1);expect(rows[0]).toMatchObject({txHash:"sig",labelConfidence:"unverified",countsTowardNetflow:false,institutionTradeSide:null});
+  });
+  it("accepts only officially disclosed tracked-address stablecoin transfers",()=>{
+    const tracked="0x1111111111111111111111111111111111111111";
+    const base={chain:"ethereum",txHash:`0x${"a".repeat(64)}`,logIndex:7,symbol:"USDT",amount:10_000_000,fromAddress:"0x2222222222222222222222222222222222222222",toAddress:tracked,trackedAddresses:[tracked],blockTimestamp:"2026-09-25T01:02:03Z"};
+    const row=normalizePublicRpcTransfer(base)!;
+    expect(row).toMatchObject({provider:"public_rpc",direction:"inflow",classification:"exchange_inflow",countsTowardNetflow:true,toEntity:"Binance",labelConfidence:"official_disclosure",valuationMethod:"stablecoin_nominal_usd",institutionTradeSide:null});
+    expect(normalizePublicRpcTransfer({...base,amount:9_999_999})).toBeNull();
+    expect(normalizePublicRpcTransfer({...base,fromAddress:"0x3333333333333333333333333333333333333333",toAddress:"0x4444444444444444444444444444444444444444"})).toBeNull();
+  });
+  it("does not enqueue historical backfill as a fresh public-flow alert",()=>{
+    const now=Date.parse("2026-09-25T02:00:00Z");
+    expect(shouldQueuePublicFlowAlert("2026-09-25T01:50:00Z",now)).toBe(true);
+    expect(shouldQueuePublicFlowAlert("2026-09-25T01:40:00Z",now)).toBe(false);
+    expect(shouldQueuePublicFlowAlert("2026-09-25T02:01:00Z",now)).toBe(false);
   });
 });

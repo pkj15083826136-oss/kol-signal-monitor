@@ -1,14 +1,14 @@
 import { env } from "cloudflare:workers";
 import { AlertDeliveryError } from "@/lib/alert-delivery";
-import { MIN_FLOW_USD, normalizeBitqueryTransfers, normalizeWhaleAlerts, type BitqueryAddressLabel } from "@/lib/fund-flows";
+import { MIN_FLOW_USD, normalizeBitqueryTransfers, normalizePublicRpcTransfer, normalizeWhaleAlerts, shouldQueuePublicFlowAlert, type BitqueryAddressLabel } from "@/lib/fund-flows";
 import { isMonitorAuthorized } from "@/lib/monitor-auth";
 import { sendWeComMarkdown } from "@/lib/wecom";
 
 export const dynamic = "force-dynamic";
 type JsonRecord = Record<string, unknown>;
-type Provider = "whale_alert" | "bitquery";
+type Provider = "whale_alert" | "bitquery" | "public_rpc";
 const asRecord = (value: unknown): JsonRecord => value !== null && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {};
-const allowedProviders = new Set<Provider>(["whale_alert", "bitquery"]);
+const allowedProviders = new Set<Provider>(["whale_alert", "bitquery", "public_rpc"]);
 
 async function sha(value: string) {
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
@@ -78,15 +78,17 @@ export async function POST(request: Request) {
   let inserted = 0; let deduped = 0; let rejected = 0;
   for (const value of records) {
     const record = asRecord(value);
-    const items = provider === "bitquery" ? normalizeBitqueryTransfers(record, String(record.chain || body.chain || "unknown"), labels, now) : normalizeWhaleAlerts(record, now);
+    const item = provider === "public_rpc" ? normalizePublicRpcTransfer(record, now) : null;
+    const items = provider === "bitquery" ? normalizeBitqueryTransfers(record, String(record.chain || body.chain || "unknown"), labels, now) : provider === "public_rpc" ? (item ? [item] : []) : normalizeWhaleAlerts(record, now);
     if (!items.length) { rejected++; continue; }
     for (const item of items) {
       const fingerprint = await sha(item.rawFingerprint);
-      const result = await env.DB.prepare("INSERT OR IGNORE INTO fund_flow_events (event_key,provider,chain,symbol,amount,amount_usd,price_usd,price_at,tx_hash,from_address,to_address,from_entity,to_entity,from_label_source,to_label_source,label_confidence,direction,classification,counts_toward_netflow,institution_trade_side,bridge_name,chain_occurred_at,discovered_at,raw_fingerprint) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id")
-        .bind(item.eventKey, item.provider, item.chain, item.symbol, item.amount, item.amountUsd, item.priceUsd, item.priceAt, item.txHash, item.fromAddress, item.toAddress, item.fromEntity, item.toEntity, item.fromLabelSource, item.toLabelSource, item.labelConfidence, item.direction, item.classification, item.countsTowardNetflow ? 1 : 0, null, item.bridgeName, item.chainOccurredAt, item.discoveredAt, fingerprint).first<{ id: number }>();
+      const result = await env.DB.prepare("INSERT OR IGNORE INTO fund_flow_events (event_key,provider,chain,symbol,amount,amount_usd,price_usd,price_at,valuation_method,tx_hash,source_url,attribution_url,from_address,to_address,from_entity,to_entity,from_label_source,to_label_source,label_confidence,direction,classification,counts_toward_netflow,institution_trade_side,bridge_name,chain_occurred_at,discovered_at,raw_fingerprint) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id")
+        .bind(item.eventKey, item.provider, item.chain, item.symbol, item.amount, item.amountUsd, item.priceUsd, item.priceAt, "valuationMethod" in item ? item.valuationMethod : null, item.txHash, "sourceUrl" in item ? item.sourceUrl : null, "attributionUrl" in item ? item.attributionUrl : null, item.fromAddress, item.toAddress, item.fromEntity, item.toEntity, item.fromLabelSource, item.toLabelSource, item.labelConfidence, item.direction, item.classification, item.countsTowardNetflow ? 1 : 0, null, item.bridgeName, item.chainOccurredAt, item.discoveredAt, fingerprint).first<{ id: number }>();
       if (result) {
         inserted++;
-        await env.DB.prepare("INSERT OR IGNORE INTO fund_flow_alert_deliveries (event_id,delivery_key,status,attempts,next_attempt_at,payload_hash) VALUES (?,?,'pending',0,?,?)").bind(result.id, `fund-flow:${item.eventKey}`, now, fingerprint).run();
+        const freshEnoughToAlert = provider !== "public_rpc" || shouldQueuePublicFlowAlert(item.chainOccurredAt);
+        if (freshEnoughToAlert) await env.DB.prepare("INSERT OR IGNORE INTO fund_flow_alert_deliveries (event_id,delivery_key,status,attempts,next_attempt_at,payload_hash) VALUES (?,?,'pending',0,?,?)").bind(result.id, `fund-flow:${item.eventKey}`, now, fingerprint).run();
       } else deduped++;
     }
   }
