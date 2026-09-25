@@ -4,13 +4,15 @@ import path from "node:path";
 
 const SITE_URL = (process.env.SITE_URL || "http://127.0.0.1:8787").replace(/\/$/, "");
 const MONITOR_SECRET = process.env.MONITOR_SECRET || "";
-const RPC_URL = process.env.ETHEREUM_RPC_URL || "https://ethereum-rpc.publicnode.com";
+const RPC_URL = process.env.ETHEREUM_RPC_URL || "https://ethereum.public.blockpi.network/v1/rpc/public";
 const RUN_MS = Number(process.env.COLLECTOR_DURATION_MS || 0);
 const CONTINUOUS = String(process.env.PUBLIC_FLOW_CONTINUOUS || "").toLowerCase() === "true";
 const POLL_MS = Math.max(15_000, Number(process.env.PUBLIC_FLOW_POLL_MS || 60_000));
 const INITIAL_BACKFILL = Math.max(100, Number(process.env.PUBLIC_FLOW_INITIAL_BACKFILL_BLOCKS || 7_200));
 const CONFIRMATIONS = Math.max(1, Number(process.env.PUBLIC_FLOW_CONFIRMATIONS || 12));
-const CHUNK_SIZE = Math.min(500, Math.max(50, Number(process.env.PUBLIC_FLOW_BLOCK_CHUNK || 500)));
+const CHUNK_SIZE = Math.min(500, Math.max(25, Number(process.env.PUBLIC_FLOW_BLOCK_CHUNK || 100)));
+const ADDRESS_BATCH_SIZE = Math.min(16, Math.max(1, Number(process.env.PUBLIC_FLOW_ADDRESS_BATCH || 8)));
+const RPC_BATCH_SIZE = Math.min(10, Math.max(1, Number(process.env.PUBLIC_FLOW_RPC_BATCH_SIZE || 10)));
 const POR_API = "https://www.binance.com/bapi/apex/v1/public/apex/market/por/address";
 const POR_PAGE = "https://www.binance.com/en/proof-of-reserves";
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
@@ -71,8 +73,9 @@ async function retry(label, fn, attempts = 4) {
 
 async function jsonRequest(url, options = {}) {
   const response = await fetch(url, { signal: AbortSignal.timeout(30_000), ...options });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return response.json();
+  const text = await response.text();
+  if (!response.ok) throw new Error(`HTTP ${response.status}${text ? ` ${text.slice(0, 240)}` : ""}`);
+  try { return JSON.parse(text); } catch { throw new Error(`invalid JSON response: ${text.slice(0, 120)}`); }
 }
 
 async function rpc(method, params) {
@@ -99,7 +102,8 @@ function coverage(addresses) {
   return [{
     mode: "limited_known_address_sample", chain: "ethereum", assets: TOKENS.map((token) => token.symbol), exchange: "Binance",
     addressCount: addresses.length, addressScope: "Binance Proof of Reserves 中披露且未标为第三方托管方的 ETH 地址",
-    attributionSource: POR_PAGE, rpcProvider: RPC_URL, rpcSla: "none", pricing: "keyless public endpoint; published fixed quota unavailable",
+    attributionSource: POR_PAGE, rpcProvider: RPC_URL, rpcProviderName: "BlockPI 公共 Ethereum 端点", rpcSla: "none",
+    pricing: "无需注册或密钥；公共端点官方限制为 10 请求/秒、每次日志查询最多 1,024 区块、批量最多 10 项",
     valuation: "USDT/USDC 按 1 美元名义值筛选；未校正脱锚", omissions: ["未披露充值地址", "其他交易所", "其他链", "其他资产", "合约路由与链下内部账务"],
   }];
 }
@@ -118,8 +122,8 @@ async function getState() {
 
 async function blockTimes(blockNumbers) {
   const result = new Map();
-  for (let offset = 0; offset < blockNumbers.length; offset += 10) {
-    const batch = blockNumbers.slice(offset, offset + 10).map((block, index) => ({ jsonrpc: "2.0", id: index + 1, method: "eth_getBlockByNumber", params: [block, false] }));
+  for (let offset = 0; offset < blockNumbers.length; offset += RPC_BATCH_SIZE) {
+    const batch = blockNumbers.slice(offset, offset + RPC_BATCH_SIZE).map((block, index) => ({ jsonrpc: "2.0", id: index + 1, method: "eth_getBlockByNumber", params: [block, false] }));
     const response = await retry("RPC block timestamps", () => jsonRequest(RPC_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(batch) }));
     if (!Array.isArray(response) || response.some((row) => row.error || !row.result?.timestamp)) throw new Error("partial block timestamp response");
     for (const row of response) result.set(row.result.number, new Date(Number.parseInt(row.result.timestamp, 16) * 1000).toISOString());
@@ -128,15 +132,17 @@ async function blockTimes(blockNumbers) {
 }
 
 async function scan(from, to, addresses) {
-  const padded = addresses.map((address) => `0x${"0".repeat(24)}${address.slice(2)}`);
   const logs = [];
-  for (const token of TOKENS) {
-    for (const topics of [[TRANSFER_TOPIC, padded], [TRANSFER_TOPIC, null, padded]]) {
-      const rows = await rpc("eth_getLogs", [{ fromBlock: hex(from), toBlock: hex(to), address: token.address, topics }]);
-      if (!Array.isArray(rows)) throw new Error("partial eth_getLogs response");
-      for (const row of rows) {
-        const amount = Number(BigInt(row.data)) / 10 ** token.decimals;
-        if (Number.isFinite(amount) && amount >= 10_000_000) logs.push({ row, token, amount });
+  for (let offset = 0; offset < addresses.length; offset += ADDRESS_BATCH_SIZE) {
+    const padded = addresses.slice(offset, offset + ADDRESS_BATCH_SIZE).map((address) => `0x${"0".repeat(24)}${address.slice(2)}`);
+    for (const token of TOKENS) {
+      for (const topics of [[TRANSFER_TOPIC, padded], [TRANSFER_TOPIC, null, padded]]) {
+        const rows = await rpc("eth_getLogs", [{ fromBlock: hex(from), toBlock: hex(to), address: token.address, topics }]);
+        if (!Array.isArray(rows)) throw new Error("partial eth_getLogs response");
+        for (const row of rows) {
+          const amount = Number(BigInt(row.data)) / 10 ** token.decimals;
+          if (Number.isFinite(amount) && amount >= 10_000_000) logs.push({ row, token, amount });
+        }
       }
     }
   }

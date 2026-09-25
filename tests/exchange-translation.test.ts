@@ -22,6 +22,9 @@ describe("exchange title translation", () => {
     expect(deterministicExchangeTitle("[Important] Bitget Announcement on Listing QLDUSDT and CLSKUSDT Stock Perps")).toBe("[重要] Bitget 上线公告： QLDUSDT 和 CLSKUSDT 股票永续合约");
     expect(deterministicExchangeTitle("Notice on New Trading Pairs & Trading Bots Services on Binance Spot - 2026-09-22")).toBe("公告： 新增交易对及交易机器人服务至 Binance 现货 - 2026-09-22");
     expect(deterministicExchangeTitle("Binance Will Close UAH Deposits and Withdrawals via Fiat Trade UAH and Delist USDT/UAH Spot Trading Pair")).toBe("Binance 将停止 UAH 充值和提现通过法币交易 UAH 并下架 USDT/UAH 现货交易对");
+    expect(deterministicExchangeTitle("New listing: Listing of OKLOUSDT on Bybit TradFi Perpetual on Sep 22, 2026, 1:00PM UTC Sep 22, 2026 New Listings")).toBe("新上线： OKLOUSDT 在 Bybit 传统金融永续合约 于 2026年9月22日、协调世界时 13：00 2026年9月22日 新上币");
+    expect(deterministicExchangeTitle("HTX to Delist Some USDT-margined Perpetuals 09/16 02:09:53 (UTC)")).toBe("HTX 将下架 部分 USDT 本位永续合约 09/16 02：09：53 （协调世界时）");
+    expect(deterministicExchangeTitle("Binance Will Delist ICX, SCRT, STORJ on 2026-09-03")).toBe("Binance 将下架 ICX、SCRT、STORJ 于 2026-09-03");
   });
 
   it("keeps already-Chinese titles and leaves unknown text pending while paid translation is disabled", async () => {

@@ -4,7 +4,7 @@
 
 现有 Windows 常开机器具备 Node.js、仓库 checkout 和可访问本地/远端 Site API 的运行条件，可以独立运行 `scripts/collect-public-stablecoin-flows.mjs`。脚本使用 `.sites-runtime/public-flow-collector.lock` 做同一 checkout、同一机器上的单实例保护；崩溃遗留且 PID 已不存在的锁会在下次启动时清理。它不是跨机器分布式锁，因此不要同时启用 GitHub job 与常开机器实例。
 
-公开生产 RPC 授权尚未明确，`PUBLIC_FLOW_ENABLED` 必须保持关闭。以下步骤仅用于获准后的部署准备或本地验证。
+BlockPI 官方提供无需账户或密钥的公共 Ethereum 端点，并明确供开发者构建应用；采集器只读取公开链上数据，不代理 RPC。`PUBLIC_FLOW_ENABLED` 目前仍保持关闭，因为本分支没有通过最终生产发布验收，而不是等待所有者注册、购买或写授权邮件。
 
 ## 必需配置
 
@@ -12,12 +12,14 @@
 | --- | --- |
 | `SITE_URL` | 目标 Site 根 URL；本地预览为 `http://127.0.0.1:8787` |
 | `MONITOR_SECRET` | 既有采集 API 只读写入鉴权；只放受保护的机器环境，不写脚本、任务参数或日志 |
-| `ETHEREUM_RPC_URL` | 获准使用的 Ethereum JSON-RPC endpoint；不配置时会使用 PublicNode，因此生产授权未明确时不得启动 |
+| `ETHEREUM_RPC_URL` | 可选；不配置时使用 BlockPI 公共 Ethereum endpoint，无需注册或密钥 |
 | `PUBLIC_FLOW_CONTINUOUS` | 常驻单实例设为 `true` |
 | `PUBLIC_FLOW_POLL_MS` | 默认 `60000`；不得为规避限流而开多个进程 |
 | `PUBLIC_FLOW_INITIAL_BACKFILL_BLOCKS` | 默认 `7200` |
 | `PUBLIC_FLOW_CONFIRMATIONS` | 默认 `12` |
-| `PUBLIC_FLOW_BLOCK_CHUNK` | 默认且最大 `500` |
+| `PUBLIC_FLOW_BLOCK_CHUNK` | 默认 `100`、最大 `500`；公共端点超时则调小 |
+| `PUBLIC_FLOW_ADDRESS_BATCH` | 默认 `8`、最大 `16`；控制单次日志主题中的已知地址数 |
+| `PUBLIC_FLOW_RPC_BATCH_SIZE` | 默认且最大 `10`，符合 BlockPI 公共端点 batch 限制 |
 | `PUBLIC_FLOW_LOCK_FILE` | 可选；默认在当前 checkout 的 `.sites-runtime` 下 |
 
 ## 启动与守护

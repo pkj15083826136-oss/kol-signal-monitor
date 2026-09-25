@@ -97,8 +97,8 @@ scripts/collect-gmgn.mjs     GitHub Actions侧采集器
 | `WHALE_ALERT_PUBLIC_DISTRIBUTION_APPROVED` | 已取得 Whale Alert 公开网页展示书面许可后才可设为 `true` |
 | `BITQUERY_ENABLED` | Bitquery 资金流采集器总开关，默认 `false` |
 | `BITQUERY_PUBLIC_DISTRIBUTION_APPROVED` | 已取得公开网页展示、有限缓存和衍生汇总书面许可后才可设为 `true` |
-| `PUBLIC_FLOW_ENABLED` | 免费公开链上有限覆盖 job 开关；生产默认 `false`，RPC 生产许可澄清后才启用 |
-| `ETHEREUM_RPC_URL` | 免费资金流采集器的 Ethereum JSON-RPC；可选且只读，不接受广播方法 |
+| `PUBLIC_FLOW_ENABLED` | 免费公开链上有限覆盖 job 开关；生产默认 `false`，仅在最终验收后启用 |
+| `ETHEREUM_RPC_URL` | 免费资金流采集器的 Ethereum JSON-RPC；可选，默认使用无需注册的 BlockPI 公共端点，采集器只调用读取方法 |
 | `EXCHANGE_GOOGLE_TRANSLATION_ENABLED` | 非标准公告标题的 Google Cloud Translation 开关，默认 `false` |
 | `GOOGLE_TRANSLATE_API_KEY` | Google Cloud Translation Basic v2 密钥；只放环境变量 |
 | `EXCHANGE_TRANSLATION_MONTHLY_CHARACTER_LIMIT` | 翻译月度硬上限，默认及最大 `450000` 字符 |

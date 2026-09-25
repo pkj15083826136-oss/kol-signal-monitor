@@ -12,6 +12,13 @@ export type ExchangeTitleTranslation = {
 
 const HAN = /[\u3400-\u9fff]/u;
 const KOREAN = /[\uac00-\ud7af]/u;
+const MONTHS: Record<string, number> = { jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3, apr: 4, april: 4, may: 5, jun: 6, june: 6, jul: 7, july: 7, aug: 8, august: 8, sep: 9, september: 9, oct: 10, october: 10, nov: 11, november: 11, dec: 12, december: 12 };
+
+function localizeEnglishDates(value: string) {
+  let result = value.replace(/\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{1,2}),\s*(\d{4})\b/giu, (_, month: string, day: string, year: string) => `${year}年${MONTHS[month.toLowerCase()]}月${Number(day)}日`);
+  result = result.replace(/\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{1,2})\b/giu, (_, month: string, day: string) => `${MONTHS[month.toLowerCase()]}月${Number(day)}日`);
+  return result.replace(/\b(\d{1,2}):(\d{2})(AM|PM)\s*UTC\b/giu, (_, hour: string, minute: string, meridiem: string) => { const raw = Number(hour) % 12 + (meridiem.toUpperCase() === "PM" ? 12 : 0); return `协调世界时 ${String(raw).padStart(2, "0")}:${minute}`; }).replace(/\(UTC\)/giu, "（协调世界时）");
+}
 
 export async function translationSourceHash(title: string) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(title));
@@ -25,7 +32,7 @@ export async function translationSourceHash(title: string) {
 export function deterministicExchangeTitle(title: string) {
   const original = title.trim();
   if (!original) return null;
-  const englishTemplate = /\b(?:will|list|listed|listing|delist|delisting|trading|futures|launch|launched|remove|spot|convert|announcement|available|published|pairs?|deposits?|withdrawals?)\b/iu;
+  const englishTemplate = /\b(?:will|list|listed|listing|listings|delist|delisting|trading|futures|launch|launched|remove|spot|convert|announcement|available|published|pairs?|deposits?|withdrawals?|contract|contracts|multiple|quarterly|delivery|margined|some|innovation|on|sep|september|oct|october|nov|november|dec|december|jan|january|feb|february|mar|march|apr|april|jun|june|jul|july|aug|august)\b/iu;
   const hasEnglishTemplate = englishTemplate.test(original);
   if (HAN.test(original) && !KOREAN.test(original) && !hasEnglishTemplate) return original;
 
@@ -41,6 +48,7 @@ export function deterministicExchangeTitle(title: string) {
     [/^Notice on\b/iu, "公告："],
     [/^Initial Listing:/iu, "首发上线："],
     [/^New listing:\s*Listing of/iu, "新上线："],
+    [/^Delisting of\s+(.+?)\s+Perpetual Futures Pair/iu, "下架 $1 永续合约交易对"],
     [/\bAnnouncement on the Listing of\b/giu, "上线公告："],
     [/\bAnnouncement on Listing\b/giu, "上线公告："],
     [/^Gate Completes Delisting of/iu, "Gate 已完成下架"],
@@ -69,9 +77,15 @@ export function deterministicExchangeTitle(title: string) {
     [/\bTrading Pairs?\b/giu, "交易对"],
     [/\bon Binance Spot\/Convert\b/giu, "至 Binance 现货/闪兑"],
     [/\bon Binance Spot\b/giu, "至 Binance 现货"],
+    [/\bon Bybit\b/giu, "在 Bybit"],
+    [/\bon (\d{4}-\d{2}-\d{2})\b/giu, "于 $1"],
     [/\bfor Spot and Convert Trading\b/giu, "用于现货及闪兑交易"],
     [/\bon Spot\b/giu, "现货"],
     [/\bUSDⓈ-Margined Perpetual Contract\b/giu, "U 本位永续合约"],
+    [/\bUSDⓈ-Margined TradFi Perpetual Contract\b/giu, "U 本位传统金融永续合约"],
+    [/\bMultiple USDⓈ-Margined Perpetual Contracts\b/giu, "多个 U 本位永续合约"],
+    [/\bUSDⓈ-M\s*&\s*COIN-M Quarterly\s+(\S+)\s+Delivery Contracts\b/giu, "U 本位及币本位季度 $1 交割合约"],
+    [/\bSome USDT-margined Perpetuals\b/giu, "部分 USDT 本位永续合约"],
     [/\bPre-IPO Tradfi Perpetual\b/giu, "传统金融盘前永续合约"],
     [/\bconvert pre-market futures to standard perpetual futures\b/giu, "将闪兑盘前合约转为标准永续合约"],
     [/\bTradFi Perpetual\b/giu, "传统金融永续合约"],
@@ -87,12 +101,14 @@ export function deterministicExchangeTitle(title: string) {
     [/\bTrading Bots Services?\b/giu, "交易机器人服务"],
     [/\bTrading Bots\b/giu, "交易机器人"],
     [/\bCopy Trading Features\b/giu, "跟单交易功能"],
+    [/\bin the Innovation Zone\b/giu, "在创新区"],
     [/\band related services\b/giu, "及相关服务"],
     [/\bLaunchpool Project\b/giu, "Launchpool 项目"],
     [/\bDeposits and Withdrawals\b/giu, "充值和提现"],
     [/\bvia Fiat Trade\b/giu, "通过法币交易"],
     [/\bwith 0-Fee Trading\b/giu, "并提供零手续费交易"],
     [/\bPublished on\b/giu, "发布于"],
+    [/\bNew Listings\b/giu, "新上币"],
     [/\bselected\b/giu, "指定"],
     [/\bIncluding\b/gu, "包括"],
     [/\bStake\b/gu, "质押"],
@@ -112,7 +128,8 @@ export function deterministicExchangeTitle(title: string) {
     [/\bon\s+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)(?=\s|$)/giu, "于 $1"],
   ];
   for (const [pattern, replacement] of replacements) translated = translated.replace(pattern, replacement);
-  translated = translated.replace(/\s*&\s*/gu, "及");
+  translated = localizeEnglishDates(translated).replace(/\s*&\s*/gu, "及");
+  translated = translated.replace(/,\s*/gu, "、").replace(/;\s*/gu, "；").replace(/:\s*/gu, "：").replace(/\.\s+/gu, "。 ");
   translated = translated.replace(/\s+([，。！？；：])/gu, "$1").replace(/\s+(?:及|至|通过)/gu, (value) => value.trim()).replace(/!$/u, "！").replace(/\s{2,}/g, " ").trim();
   // A partial rule match must not masquerade as a finished translation.
   if (englishTemplate.test(translated)) return null;

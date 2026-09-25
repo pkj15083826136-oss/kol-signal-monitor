@@ -10,7 +10,7 @@ export type ExchangePayload = { events: ExchangeEvent[]; health: ExchangeHealth[
 const typeLabels: Record<string, string> = { first_spot_listing: "首次现货上币", spot_pair_add: "新增现货交易对", contract_open: "合约开通", alpha_add: "币安 Alpha 纳入", alpha_remove: "币安 Alpha 移除", launch_activity: "Launchpad／Launchpool／打新", token_delisting: "下架币种", pair_delisting: "下架指定交易对" };
 const marketLabels: Record<string,string> = { spot: "现货", contract: "合约", alpha: "Alpha", activity: "活动", unknown: "市场待核实" };
 const statusLabels: Record<string,string> = { announced: "已公告", effective: "已生效", cancelled: "已取消" };
-const fmt = (value: unknown) => value ? new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(String(value))) : "—";
+const fmt = (value: unknown) => value ? new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(String(value))).replace(/^(\d{2})\/(\d{2})(?:,\s*|\s+)/u, "$1月$2日 ") : "—";
 function healthMessage(row: ExchangeHealth) { const raw=String(row.last_error||row.status); if(raw.includes("COINBASE_X_BEARER_TOKEN"))return "官方提前公告源未配置；公开交易对快照仍正常运行";if(raw.includes("UPBIT_ACCESS_KEY")||raw.includes("私有公告 WebSocket"))return "官方提前公告源未配置或连接已超时；公开交易对快照仍正常运行";if(raw==="healthy")return "正常";if(raw==="error")return "采集异常";return raw; }
 
 export default function ExchangeDashboard({ initial }: { initial: ExchangePayload }) {
