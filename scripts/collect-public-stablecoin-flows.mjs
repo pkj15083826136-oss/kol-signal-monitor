@@ -22,6 +22,8 @@ const BYBIT_POR_PDF = "https://www.bybit.com/common-static/cht-static/por/Bybit_
 const OKX_POR_PAGE = "https://www.okx.com/en-us/proof-of-reserves/download";
 const OKX_POR_ARCHIVE = "https://static.okx.com/cdn/okx/por/chain/por_csv_2026090800_V1.zip";
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+const ZERO_TOPIC = `0x${"0".repeat(64)}`;
+const TOTAL_SUPPLY_SELECTOR = "0x18160ddd";
 const TOKENS = [
   { symbol: "USDT", address: "0xdac17f958d2ee523a2206206994597c13d831ec7", decimals: 6, valuation: "stablecoin", mintTopic: "0xcb8241adb0c3fdb35b70c24ce35c5eb0c17af7431c99f827d44a445ca624176a", mintEvidence: "tether_issue_event", issuerUrl: "https://tether.to/en/transparency/" },
   { symbol: "USDC", address: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", decimals: 6, valuation: "stablecoin", mintTopic: "0xab8530f87dc9b59234c4623bf917212bb2536d647574c8e7e5da92c2ede0c9f8", mintEvidence: "circle_mint_event", issuerUrl: "https://developers.circle.com/stablecoins/usdc-contract-addresses" },
@@ -101,8 +103,20 @@ async function jsonRequest(url, options = {}) {
 
 async function rpc(method, params) {
   const body = await retry(`RPC ${method}`, () => jsonRequest(RPC_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) }));
-  if (body.error) throw new Error(`${body.error.code || "RPC"} ${body.error.message || "unknown error"}`);
+  if (body.error) throw new Error(`${method}: ${body.error.code || "RPC"} ${body.error.message || "unknown error"}${body.error.data ? ` (${String(body.error.data)})` : ""}`);
   return body.result;
+}
+
+async function getLogs(filter) {
+  try { return await rpc("eth_getLogs", [filter]); }
+  catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const from = Number.parseInt(filter.fromBlock, 16); const to = Number.parseInt(filter.toBlock, 16);
+    if (!/more than \d+ results|block range/i.test(message) || !Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from >= to) throw error;
+    const middle = Math.floor((from + to) / 2);
+    const [left, right] = await Promise.all([getLogs({ ...filter, fromBlock: hex(from), toBlock: hex(middle) }), getLogs({ ...filter, fromBlock: hex(middle + 1), toBlock: hex(to) })]);
+    return [...left, ...right];
+  }
 }
 
 async function site(path, options = {}) {
@@ -181,7 +195,7 @@ async function scan(from, to, addresses) {
     const padded = addresses.slice(offset, offset + ADDRESS_BATCH_SIZE).map((item) => `0x${"0".repeat(24)}${item.address.slice(2)}`);
     for (const token of TOKENS) {
       for (const topics of [[TRANSFER_TOPIC, padded], [TRANSFER_TOPIC, null, padded]]) {
-        const rows = await rpc("eth_getLogs", [{ fromBlock: hex(from), toBlock: hex(to), address: token.address, topics }]);
+        const rows = await getLogs({ fromBlock: hex(from), toBlock: hex(to), address: token.address, topics });
         if (!Array.isArray(rows)) throw new Error("partial eth_getLogs response");
         for (const row of rows) {
           const rawAmount = BigInt(row.data); const amount = Number(rawAmount) / 10 ** token.decimals;
@@ -205,12 +219,33 @@ async function scan(from, to, addresses) {
 async function scanMints(from, to) {
   const matches = [];
   for (const token of TOKENS.filter((item) => item.mintTopic)) {
-    const rows = await rpc("eth_getLogs", [{ fromBlock: hex(from), toBlock: hex(to), address: token.address, topics: [token.mintTopic] }]);
+    const rows = await getLogs({ fromBlock: hex(from), toBlock: hex(to), address: token.address, topics: [token.mintTopic] });
     if (!Array.isArray(rows)) throw new Error("partial stablecoin mint log response");
     for (const row of rows) { const rawAmount = BigInt(`0x${row.data.slice(-64)}`); const amount = Number(rawAmount) / 10 ** token.decimals; if (Number.isFinite(amount) && amount > 100_000_000) matches.push({ row, token, rawAmount: String(rawAmount), amount }); }
   }
   const times = await blockTimes([...new Set(matches.map((entry) => entry.row.blockNumber))]);
-  return matches.map(({ row, token, rawAmount }) => ({ chain: "ethereum", txHash: row.transactionHash, logIndex: Number.parseInt(row.logIndex, 16), blockTimestamp: times.get(row.blockNumber), symbol: token.symbol, tokenContract: token.address, rawAmount, amount: decimalAmount(rawAmount, token.decimals), recipientAddress: token.symbol === "USDC" ? addressFromTopic(row.topics[2]) : null, evidenceType: token.mintEvidence, sourceUrl: `https://etherscan.io/tx/${row.transactionHash}`, contractEvidenceUrl: token.issuerUrl }));
+  const verified = [];
+  for (const { row, token, rawAmount } of matches) {
+    const blockNumber = Number.parseInt(row.blockNumber, 16);
+    const expectedSelector = token.symbol === "USDT" ? "0xcc872b66" : "0x40c10f19";
+    const [transaction, receipt, supplyBeforeHex, supplyAfterHex] = await Promise.all([
+      rpc("eth_getTransactionByHash", [row.transactionHash]),
+      rpc("eth_getTransactionReceipt", [row.transactionHash]),
+      rpc("eth_call", [{ to: token.address, data: TOTAL_SUPPLY_SELECTOR }, hex(blockNumber - 1)]),
+      rpc("eth_call", [{ to: token.address, data: TOTAL_SUPPLY_SELECTOR }, row.blockNumber]),
+    ]);
+    const supplyBefore = BigInt(supplyBeforeHex); const supplyAfter = BigInt(supplyAfterHex); const supplyDelta = supplyAfter - supplyBefore;
+    const zeroTransfer = Array.isArray(receipt?.logs) ? receipt.logs.find((log) => log.address?.toLowerCase() === token.address && log.topics?.[0]?.toLowerCase() === TRANSFER_TOPIC && log.topics?.[1]?.toLowerCase() === ZERO_TOPIC && BigInt(log.data) === BigInt(rawAmount)) : null;
+    const transactionTo = String(transaction?.to || "").toLowerCase(); const callSelector = String(transaction?.input || "").slice(0, 10).toLowerCase();
+    const directIssuerCall = transactionTo === token.address && callSelector === expectedSelector;
+    const zeroTransferConfirmed = token.symbol === "USDT" || Boolean(zeroTransfer);
+    if (!directIssuerCall || !zeroTransferConfirmed || supplyDelta !== BigInt(rawAmount)) {
+      console.warn(JSON.stringify({ at: new Date().toISOString(), status: "mint_rejected_unverified", txHash: row.transactionHash, symbol: token.symbol, directIssuerCall, zeroTransferConfirmed, supplyDelta: supplyDelta.toString(), rawAmount }));
+      continue;
+    }
+    verified.push({ chain: "ethereum", txHash: row.transactionHash, logIndex: Number.parseInt(row.logIndex, 16), blockNumber, blockTimestamp: times.get(row.blockNumber), symbol: token.symbol, tokenContract: token.address, rawAmount, amount: decimalAmount(rawAmount, token.decimals), recipientAddress: token.symbol === "USDC" ? addressFromTopic(row.topics[2]) : null, evidenceType: token.mintEvidence, verificationStatus: "verified_supply_increase", transactionTo, callSelector, zeroAddressTransferLogIndex: zeroTransfer ? Number.parseInt(zeroTransfer.logIndex, 16) : null, supplyBeforeRaw: supplyBefore.toString(), supplyAfterRaw: supplyAfter.toString(), supplyDeltaRaw: supplyDelta.toString(), sourceUrl: `https://etherscan.io/tx/${row.transactionHash}`, contractEvidenceUrl: token.issuerUrl });
+  }
+  return verified;
 }
 
 async function cycle() {

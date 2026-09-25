@@ -82,7 +82,7 @@ Upbit Announcement WebSocket 文档明确该功能“不属于任何权限组”
 - 当前范围严格限定为 Ethereum mainnet 的 USDT、USDC、UNI，以及三组官方披露地址：Binance PoR API 32 个直接 ETH 地址、Bybit PoR 审计文件 7 个 Ethereum 地址、OKX 2026-09-08 PoR CSV 中按披露 ETH 余额排序的前 20 个 Ethereum 地址。Ceffu 等第三方托管地址不归为 Binance；OKX 的 20 个地址只是官方文件 8,817 个 ETH 地址中的明确子集。
 - USDT/USDC 采用 `1 token = USD 1` 的**名义估值**；UNI 必须读取交易发生区块的 Chainlink UNI/USD 喂价并校验更新时间。价格不可核验、过期或异常时只累计“估值不足”，不入库、不生成达标事件，也不推断机构买卖。
 - 初次运行只回补最近 7,200 个已确认区块，随后按 D1 游标续跑。默认每 100 区块、每 8 个已知地址一组查询日志，每批最多 5 项区块时间查询。每个分片必须完整取得三种代币、转入/转出日志、增发日志和区块时间并成功写入后才推进游标；HTTP/RPC/部分响应失败写 `degraded/reconnecting`，不推进游标。地址集合指纹变化时自动回退 7,200 区块补采；事件键为链、交易哈希、日志索引和币种，重试不会重复入库。资金流事件不进入任何企微队列。
-- 本地真实闭环当前累计 63 条 ≥USD 10m USDT/USDC 事件（35 USDT、28 USDC）及 1 条 USDC 真正合约铸造事件；铸造样本 `0x531e8900af6d11459e9e03f77573091facd59d18999bc9a9abe112b8dfa59cb0` 为 199,231,181.85 USDC。复投已验证为去重，不重复入库。UNI 逻辑和历史价格读取已通过真实 RPC，但尚未捕获达到门槛的真实 UNI 样本，因此状态仍为待验证。
+- 2026-09-25 本地测试 D1 已持续写入多条 ≥USD 10m 的真实 USDT/USDC 事件及 1 条 USDC 合约新增铸造事件；具体计数会随本地采集变化，只用于验收，不是生产数据。铸造样本 `0x531e8900af6d11459e9e03f77573091facd59d18999bc9a9abe112b8dfa59cb0` 为 199,231,181.85 USDC：交易直接调用 USDC 合约 `mint(address,uint256)`（选择器 `0x40c10f19`），Mint 日志索引 114，同笔零地址 Transfer 日志索引 115，区块 25,998,578 前后 `totalSupply` 从 `50074525144245332` 增至 `50273756326095332`，精确增加 `199231181850000` 最小单位；因此不是普通库存地址间转移或重复事件，也不是调用跨链合约。它证明链上新增供应，但接收地址中的库存是否已进入流通仍保持待核实。复投已验证为去重。UNI 逻辑和历史价格读取已通过真实 RPC，但尚未捕获达到门槛的真实 UNI 样本，因此状态仍为待验证。
 - 页面只称“已知地址样本转入/转出/净额”。未披露充值地址、其他链、未配置可靠价格源的资产、合约路由和链下内部账务均不覆盖；不能称为交易所全部净流入，空列表也不能解释为零流量。
 
 #### 免费 RPC、条款与运行成本
@@ -96,7 +96,7 @@ Upbit Announcement WebSocket 文档明确该功能“不属于任何权限组”
 | Ankr Public/Freemium | 官方服务计划称 Public 免费约 1,800 请求/分钟，Freemium 每月 200M credits | 当前官方 API 参考及实测端点要求免费账户 API key；不符合本轮“不要提供 key”的条件 | 未接入 |
 | Cloudflare Ethereum Gateway | 官方文档提供公共 Ethereum Gateway，并支持 `eth_getLogs` | 2026-09-25 对公开端点实测 `eth_blockNumber` 返回 `-32046 Cannot fulfill request`，当前不可用 | 已换下 |
 
-代码不需要免费 API key，RPC 费用为 USD 0。以 59 地址、8 地址一组、三种代币和两个方向估算，每个 100 区块分片约 50 次 RPC；正常链头每分钟通常只新增约 5 个区块，常态请求量远低于补采阶段。请求串行发送，不靠并发冲击端点。生产常驻由 GitHub-hosted runner 工作流承担，不依赖所有者电脑；脚本支持 `PUBLIC_FLOW_CONTINUOUS=true`、本机锁、失败退避和 D1 游标恢复，配置见 `docs/PUBLIC_FLOW_ALWAYS_ON.md`。生产 `PUBLIC_FLOW_ENABLED` 仍保持 `false`，原因是本分支尚未完成最终验收和发布。
+代码不需要免费 API key，RPC 费用为 USD 0。以 59 地址、8 地址一组、三种代币和两个方向估算，每个 100 区块分片约 50 次 RPC；正常链头每分钟通常只新增约 5 个区块，常态请求量远低于补采阶段。请求串行发送，不靠并发冲击端点。生产采用 GitHub-hosted runner“定时接棒＋游标补采”，不依赖所有者电脑，但不构成无空窗常驻服务；脚本支持 `PUBLIC_FLOW_CONTINUOUS=true`、本机锁、失败退避和 D1 游标恢复，配置见 `docs/PUBLIC_FLOW_ALWAYS_ON.md`。生产 `PUBLIC_FLOW_ENABLED` 仍保持 `false`，原因是本分支尚未完成最终验收和发布。
 
 官方依据：Binance Proof of Reserves <https://www.binance.com/en/proof-of-reserves>；Binance 官方披露接口 <https://www.binance.com/bapi/apex/v1/public/apex/market/por/address>；Bybit PoR 说明 <https://www.bybit.com/en/help-center/article/How-to-Verify-Bybit-Ownership-of-Wallet-Addresses-and-Their-Balances>；OKX PoR 下载页 <https://www.okx.com/en-us/proof-of-reserves/download>；Ethereum `eth_getLogs` <https://ethereum.org/developers/docs/apis/json-rpc/>；Tenderly Node <https://tenderly.co/blog/getting-started-with-tenderly-web3-gateway/>；BlockPI 条款 <https://blockpi.io/terms-of-use/>；PublicNode 条款 <https://www.publicnode.com/terms>；dRPC 限制 <https://drpc.org/docs/howitworks/ratelimiting>；Ankr 计划 <https://www.ankr.com/docs/rpc-service/service-plans/>；Cloudflare Gateway <https://developers.cloudflare.com/web3/ethereum-gateway/>。
 

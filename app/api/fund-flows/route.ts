@@ -21,7 +21,7 @@ export async function GET(request: Request) {
   if (chain) { conditions.push("chain=?"); binds.push(chain); }
   if (exchange) { conditions.push("(from_entity LIKE ? OR to_entity LIKE ?)"); binds.push(`%${exchange}%`, `%${exchange}%`); }
   const where = conditions.join(" AND ");
-  const mintConditions = ["chain_occurred_at>=?"]; const mintBinds: unknown[] = [mintFrom];
+  const mintConditions = ["chain_occurred_at>=?", "verification_status='verified_supply_increase'"]; const mintBinds: unknown[] = [mintFrom];
   if (symbol) { if (["USDT", "USDC"].includes(symbol)) { mintConditions.push("symbol=?"); mintBinds.push(symbol); } else mintConditions.push("1=0"); }
   const [events, mintEvents, aggregates, health, filteredStats, totalStats] = await Promise.all([
     env.DB.prepare(`SELECT * FROM fund_flow_events WHERE ${where} ORDER BY chain_occurred_at DESC,id DESC LIMIT 100`).bind(...binds).all<Record<string, unknown>>(),

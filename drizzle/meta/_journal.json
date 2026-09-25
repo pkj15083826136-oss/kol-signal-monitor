@@ -169,6 +169,13 @@
       "when": 1790306350161,
       "tag": "0023_mixed_justin_hammer",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1790311867655,
+      "tag": "0024_striped_moon_knight",
+      "breakpoints": true
     }
   ]
 }

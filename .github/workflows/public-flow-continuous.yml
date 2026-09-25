@@ -1,4 +1,4 @@
-name: Public fund-flow continuous collector
+name: Public fund-flow scheduled handoff collector
 
 on:
   schedule:
@@ -25,7 +25,7 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - name: Continuous public Ethereum collector
+      - name: Scheduled handoff with D1 cursor recovery
         env:
           SITE_URL: ${{ secrets.SITE_URL }}
           MONITOR_SECRET: ${{ secrets.MONITOR_SECRET }}

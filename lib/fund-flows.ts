@@ -101,7 +101,7 @@ export function normalizePublicRpcTransfer(input: PublicRpcTransfer, discoveredA
 }
 
 export const MIN_STABLECOIN_MINT_USD = 100_000_000;
-export type PublicStablecoinMint = { chain?: string; txHash?: string; logIndex?: number | string; symbol?: string; tokenContract?: string; rawAmount?: string; amount?: number | string; recipientAddress?: string | null; blockTimestamp?: string; evidenceType?: string; sourceUrl?: string; contractEvidenceUrl?: string };
+export type PublicStablecoinMint = { chain?: string; txHash?: string; logIndex?: number | string; blockNumber?: number | string; symbol?: string; tokenContract?: string; rawAmount?: string; amount?: number | string; recipientAddress?: string | null; blockTimestamp?: string; evidenceType?: string; verificationStatus?: string; transactionTo?: string; callSelector?: string; zeroAddressTransferLogIndex?: number | string | null; supplyBeforeRaw?: string; supplyAfterRaw?: string; supplyDeltaRaw?: string; sourceUrl?: string; contractEvidenceUrl?: string };
 
 /** Publishes only native issuer-contract mint/issue events strictly above USD 100m. */
 export function normalizePublicStablecoinMint(input: PublicStablecoinMint, discoveredAt = new Date().toISOString()) {
@@ -111,14 +111,19 @@ export function normalizePublicStablecoinMint(input: PublicStablecoinMint, disco
   const tokenContract = String(input.tokenContract || "").toLowerCase();
   const amount = Number(input.amount);
   const evidenceType = String(input.evidenceType || "");
-  if (chain !== "ethereum" || !/^0x[0-9a-f]{64}$/i.test(txHash) || !["USDT", "USDC"].includes(symbol) || !/^0x[0-9a-f]{40}$/.test(tokenContract) || !Number.isFinite(amount) || amount <= MIN_STABLECOIN_MINT_USD || !["tether_issue_event", "circle_mint_event"].includes(evidenceType)) return null;
+  const transactionTo = String(input.transactionTo || "").toLowerCase();
+  const callSelector = String(input.callSelector || "").toLowerCase();
+  const expectedSelector = symbol === "USDT" ? "0xcc872b66" : "0x40c10f19";
+  const supplyDeltaRaw = String(input.supplyDeltaRaw || "");
+  if (chain !== "ethereum" || !/^0x[0-9a-f]{64}$/i.test(txHash) || !["USDT", "USDC"].includes(symbol) || !/^0x[0-9a-f]{40}$/.test(tokenContract) || !Number.isFinite(amount) || amount <= MIN_STABLECOIN_MINT_USD || !["tether_issue_event", "circle_mint_event"].includes(evidenceType) || input.verificationStatus !== "verified_supply_increase" || transactionTo !== tokenContract || callSelector !== expectedSelector || supplyDeltaRaw !== String(input.rawAmount || "")) return null;
   const chainOccurredAt = Number.isFinite(new Date(String(input.blockTimestamp)).getTime()) ? new Date(String(input.blockTimestamp)).toISOString() : discoveredAt;
   const issuer = symbol === "USDT" ? "Tether" : "Circle";
   const recipientAddress = input.recipientAddress && /^0x[0-9a-f]{40}$/i.test(input.recipientAddress) ? input.recipientAddress.toLowerCase() : null;
   return {
     eventKey: `public_rpc_mint:${chain}:${txHash}:${String(input.logIndex ?? 0)}:${symbol}`, provider: "public_rpc", chain, symbol, tokenContract,
-    rawAmount: String(input.rawAmount || ""), amount: String(input.amount), amountUsd: amount, txHash, logIndex: Number(input.logIndex || 0), issuer, recipientAddress,
+    rawAmount: String(input.rawAmount || ""), amount: String(input.amount), amountUsd: amount, txHash, logIndex: Number(input.logIndex || 0), blockNumber: Number(input.blockNumber || 0), issuer, recipientAddress,
     evidenceType, issuanceClassification: "onchain_mint_inventory_status_unverified",
+    verificationStatus: "verified_supply_increase", transactionTo, callSelector, zeroAddressTransferLogIndex: input.zeroAddressTransferLogIndex == null ? null : Number(input.zeroAddressTransferLogIndex), supplyBeforeRaw: String(input.supplyBeforeRaw || ""), supplyAfterRaw: String(input.supplyAfterRaw || ""), supplyDeltaRaw,
     sourceUrl: String(input.sourceUrl || `https://etherscan.io/tx/${txHash}`), contractEvidenceUrl: String(input.contractEvidenceUrl || ""), chainOccurredAt, discoveredAt,
   };
 }

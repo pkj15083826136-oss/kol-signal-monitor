@@ -35,9 +35,11 @@ describe("large fund flow classification",()=>{
     expect(normalizePublicRpcTransfer({...row,txHash:`0x${"c".repeat(64)}`,fromAddress:tracked,toAddress:"0x2222222222222222222222222222222222222222",trackedEntities:[{address:tracked,exchange:"Bybit",source:"Bybit 官方储备证明"}],amount:"2000000",priceUsd:0})).toBeNull();
   });
   it("publishes only confirmed stablecoin contract mints strictly above one hundred million",()=>{
-    const base={chain:"ethereum",txHash:`0x${"d".repeat(64)}`,logIndex:2,symbol:"USDC",tokenContract:"0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",rawAmount:"100000001000000",amount:"100000001",evidenceType:"circle_mint_event",blockTimestamp:"2026-09-25T01:02:03Z"};
-    expect(normalizePublicStablecoinMint(base)).toMatchObject({issuer:"Circle",amountUsd:100_000_001,issuanceClassification:"onchain_mint_inventory_status_unverified"});
+    const base={chain:"ethereum",txHash:`0x${"d".repeat(64)}`,logIndex:2,blockNumber:123,symbol:"USDC",tokenContract:"0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",rawAmount:"100000001000000",amount:"100000001",evidenceType:"circle_mint_event",verificationStatus:"verified_supply_increase",transactionTo:"0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",callSelector:"0x40c10f19",zeroAddressTransferLogIndex:3,supplyBeforeRaw:"50000000000000000",supplyAfterRaw:"50100000001000000",supplyDeltaRaw:"100000001000000",blockTimestamp:"2026-09-25T01:02:03Z"};
+    expect(normalizePublicStablecoinMint(base)).toMatchObject({issuer:"Circle",amountUsd:100_000_001,issuanceClassification:"onchain_mint_inventory_status_unverified",verificationStatus:"verified_supply_increase",blockNumber:123});
     expect(normalizePublicStablecoinMint({...base,amount:"100000000"})).toBeNull();
     expect(normalizePublicStablecoinMint({...base,evidenceType:"transfer"})).toBeNull();
+    expect(normalizePublicStablecoinMint({...base,verificationStatus:"unverified"})).toBeNull();
+    expect(normalizePublicStablecoinMint({...base,supplyDeltaRaw:"1"})).toBeNull();
   });
 });

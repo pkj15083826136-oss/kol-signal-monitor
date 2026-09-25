@@ -82,9 +82,13 @@ export async function POST(request: Request) {
   for (const value of mintRecords) {
     const item = normalizePublicStablecoinMint(asRecord(value), now);
     if (!item) { mintsRejected++; continue; }
-    const result = await env.DB.prepare("INSERT OR IGNORE INTO stablecoin_mint_events (event_key,provider,chain,symbol,token_contract,raw_amount,amount,amount_usd,tx_hash,log_index,issuer,recipient_address,evidence_type,issuance_classification,source_url,contract_evidence_url,chain_occurred_at,discovered_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id")
-      .bind(item.eventKey, item.provider, item.chain, item.symbol, item.tokenContract, item.rawAmount, item.amount, item.amountUsd, item.txHash, item.logIndex, item.issuer, item.recipientAddress, item.evidenceType, item.issuanceClassification, item.sourceUrl, item.contractEvidenceUrl, item.chainOccurredAt, item.discoveredAt).first<{ id: number }>();
-    if (result) mintsInserted++; else mintsDeduped++;
+    const result = await env.DB.prepare("INSERT OR IGNORE INTO stablecoin_mint_events (event_key,provider,chain,symbol,token_contract,raw_amount,amount,amount_usd,tx_hash,log_index,block_number,issuer,recipient_address,evidence_type,issuance_classification,verification_status,transaction_to,call_selector,zero_address_transfer_log_index,supply_before_raw,supply_after_raw,supply_delta_raw,source_url,contract_evidence_url,chain_occurred_at,discovered_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id")
+      .bind(item.eventKey, item.provider, item.chain, item.symbol, item.tokenContract, item.rawAmount, item.amount, item.amountUsd, item.txHash, item.logIndex, item.blockNumber, item.issuer, item.recipientAddress, item.evidenceType, item.issuanceClassification, item.verificationStatus, item.transactionTo, item.callSelector, item.zeroAddressTransferLogIndex, item.supplyBeforeRaw, item.supplyAfterRaw, item.supplyDeltaRaw, item.sourceUrl, item.contractEvidenceUrl, item.chainOccurredAt, item.discoveredAt).first<{ id: number }>();
+    if (result) mintsInserted++; else {
+      await env.DB.prepare("UPDATE stablecoin_mint_events SET block_number=?,verification_status=?,transaction_to=?,call_selector=?,zero_address_transfer_log_index=?,supply_before_raw=?,supply_after_raw=?,supply_delta_raw=? WHERE event_key=?")
+        .bind(item.blockNumber, item.verificationStatus, item.transactionTo, item.callSelector, item.zeroAddressTransferLogIndex, item.supplyBeforeRaw, item.supplyAfterRaw, item.supplyDeltaRaw, item.eventKey).run();
+      mintsDeduped++;
+    }
   }
   await updateHealth(env.DB, provider, { status: String(body.status || "healthy"), cursor: body.cursor ? String(body.cursor) : null, connectionStatus: String(body.connectionStatus || "connected"), lastEventAt: inserted ? now : null, error: body.error ? String(body.error).slice(0, 300) : null, coverage: Array.isArray(body.coverage) ? body.coverage : [], latencyMs: Number(body.latencyMs || 0) });
   return Response.json({ ok: true, provider, minimumUsd: MIN_FLOW_USD, inserted, deduped, rejected, mintsInserted, mintsDeduped, mintsRejected, notifications: { enabled: false, mode: "web_only" } });
