@@ -1,9 +1,4 @@
 export const MIN_FLOW_USD = 10_000_000;
-export const PUBLIC_FLOW_ALERT_FRESHNESS_MS = 15 * 60_000;
-export function shouldQueuePublicFlowAlert(chainOccurredAt: string, now = Date.now()) {
-  const occurred = new Date(chainOccurredAt).getTime();
-  return Number.isFinite(occurred) && occurred <= now && now - occurred <= PUBLIC_FLOW_ALERT_FRESHNESS_MS;
-}
 const exchangeWords = /(binance|coinbase|upbit|okx|bybit|kraken|bitget|gate(?:\.io)?|mexc|huobi|htx)/i;
 const bridgeWords = /(bridge|wormhole|layerzero|stargate|portal|hop protocol|across)/i;
 

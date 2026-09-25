@@ -1,15 +1,23 @@
 # 交易所动态与大额资金流向
 
-这两个模块与 KOL 监控、土狗雷达完全隔离，不读取 GMGN、Ave、钱包池、土狗评分或 6/18/38/58 阈值。它们只复用页面风格、北京时间格式和企业微信 HTTP 发送底层。
+这两个模块与 KOL 监控、土狗雷达完全隔离，不读取 GMGN、Ave、钱包池、土狗评分或 6/18/38/58 阈值。它们只复用页面风格和北京时间格式。当前产品范围为**仅公开网页展示**：两个新模块不写入、不消费各自历史通知队列，也不调用企业微信发送底层；原 KOL 信号与土狗雷达的企微行为不变。
+
+## 仅网页版本验收门槛
+
+- 两个新采集路由不得导入 `lib/wecom.ts`，不得写入或消费 `exchange_alert_deliveries`、`fund_flow_alert_deliveries`；API 返回 `notifications.enabled=false` 与 `mode=web_only`。
+- 原 `app/api/monitor/run/route.ts` 的 KOL `sendWeComAlert` 调用、6/18/38/58 阈值和土狗雷达隔离状态必须继续通过回归。
+- 页面明确说明“仅网页展示，不发送企业微信通知”；数据源许可只评估自动采集、公开网页、有限缓存、历史保留和衍生汇总。
+- 生产资金流的 `PUBLIC_FLOW_ENABLED`、`WHALE_ALERT_ENABLED`、`BITQUERY_ENABLED` 均保持关闭；Whale Alert 与 Bitquery 还须各自的公开展示批准变量，单有 API key 不得启动。
+- 发布前仍需真实数据链路、移动端无横向滚动、失败状态、游标恢复、去重、原功能回归与最终钱包只读烟测；通知送达不再是两个新栏目的验收项。
 
 ## 交易所动态
 
 - 初始名单：Binance、Coinbase、Upbit、OKX、Bybit、Kraken、Bitget、Gate、MEXC、HTX；这是产品监控名单，不是实时排名。
 - 每家都通过官方公开交易对接口建立现货快照；有公开接口的交易所同时建立合约快照。
-- 首次快照只建立基线，不产生上币事件和通知。之后的集合差异保存为实际开通/停止时间。
+- 首次快照只建立基线，不产生上币事件。之后的集合差异保存为实际开通/停止时间。
 - 官方公告以交易所自己的公告页或公告 JSON 为第一来源。无法稳定读取的来源必须在 `exchange_collector_state` 标为失败，不得用媒体转载替代。
 - 公告身份为 `exchange + official announcement id`；标题或内容变化追加 `exchange_event_revisions`，不创建第二条事件。
-- 高优先事件进入 `exchange_alert_deliveries`。只有可确认未送达的失败才重试；网络结果未知转为 `manual_review`，避免重试造成重复发送。
+- 所有事件只写 `exchange_events` 与修订记录。`exchange_alert_deliveries` 为兼容既有本地迁移而保留表结构，但新代码不入队、也不消费历史行。
 
 ### 2026-09-24 本地真实链路验收
 
@@ -28,13 +36,13 @@
 | MEXC | 官方公告页 | 1 / 1 | 现货 1956、合约 1194 | PASS；页面结构为空或变化时显式报错 |
 | HTX | 官方公告页 | 16 / 16 | 现货 608、合约 361 | PASS；官方链接、公告 ID、修订记录保留 |
 
-连续观测窗口内 8 个已接通公告源的 `changed=0`，所有交易对源 `created=0`，通知队列 `queued=0/sent=0`，证明同一官方内容不会重复入库或进入通知队列。没有在验收窗口刻意制造真实新公告，因此“真实企业微信成功送达”仍须在合法生产链路出现首个新高优先事件后验证，不能用测试消息冒充。
+连续观测窗口内 8 个已接通公告源的 `changed=0`，所有交易对源 `created=0`，证明同一官方内容不会重复入库。当前验收另要求两个新采集路由均不引用企微发送函数或通知表；不再把通知送达作为发布门槛。
 
 12 分钟故障观测实际执行 11 轮：前 10 轮计划启动漂移为 2–15ms，单轮 24–39 秒；第 11 轮遇到多个官方端点同时变慢，串行版本耗时 174.254 秒，调度器记录 `schedule_lag skipped=2`，没有重叠执行或并发补跑。修复为“交易所之间并发、同一交易所内公告/现货/合约有序”后连续 5 轮均按 60 秒计划点启动，漂移 0–12ms，单轮 34.5–52.0 秒，无跳点、无任务重叠；8 家公告源每轮均成功，首轮因补齐可验证公告时间产生一次原事件修订，随后 4 轮 `changed=0`，队列始终 `queued=0/sent=0`。
 
-Binance 现货 `exchangeInfo` 完整响应约 17.6MB，经 Worker 中转会在读取响应体时持续超时。现由既有 Node/GitHub 采集器直接读取 Binance 官方 `data-api.binance.vision`，使用 `showPermissionSets=false` 保留相同 symbol 集合并把响应降至约 6.7MB，再只把规范化交易对数组提交给独立 API；API 仍执行完整性比例检查、连续两快照确认、D1 去重和通知状态，并与其余九家并发采集。为保证单轮在分钟目标内收敛，官方 HTTP 每轮最多两次、单次 20 秒并在两次间退避；失败写健康状态，下一分钟从官方列表和最近完整快照继续，而不是在同一轮无限重试。失败期间保留最近完整快照且页面显示源错误。
+Binance 现货 `exchangeInfo` 完整响应约 17.6MB，经 Worker 中转会在读取响应体时持续超时。现由既有 Node/GitHub 采集器直接读取 Binance 官方 `data-api.binance.vision`，使用 `showPermissionSets=false` 保留相同 symbol 集合并把响应降至约 6.7MB，再只把规范化交易对数组提交给独立 API；API 仍执行完整性比例检查、连续两快照确认和 D1 去重，并与其余九家并发采集。为保证单轮在分钟目标内收敛，官方 HTTP 每轮最多两次、单次 20 秒并在两次间退避；失败写健康状态，下一分钟从官方列表和最近完整快照继续，而不是在同一轮无限重试。失败期间保留最近完整快照且页面显示源错误。
 
-最终构建实跑一轮：Node 侧 Binance 完整现货快照为 3,713 对，保留官方非拉丁 symbol；API 内 8 家已接通公告源全部成功且 `changed=0`，全部 25 个已配置公告/交易对源为 healthy，只有 Coinbase、Upbit 公告保持预期 blocked/error。API 用时 41.862 秒，包含 Node 预取后端到端约 44.4 秒，在 60 秒计划间隔内，通知队列 `queued=0/sent=0`。Unicode 校验缺陷在本地测试 D1 产生的 7 条关闭及 7 条重开误报和对应未发送通知已全部清理，生产 D1 从未迁移或写入。
+既有构建实跑一轮：Node 侧 Binance 完整现货快照为 3,713 对，保留官方非拉丁 symbol；API 内 8 家已接通公告源全部成功且 `changed=0`，全部 25 个已配置公告/交易对源为 healthy，只有 Coinbase、Upbit 公告保持预期 blocked/error。API 用时 41.862 秒，包含 Node 预取后端到端约 44.4 秒，在 60 秒计划间隔内。Unicode 校验缺陷在本地测试 D1 产生的 7 条关闭及 7 条重开误报已全部清理，生产 D1 从未迁移或写入。
 
 ## 钱包与发布门槛
 
@@ -73,8 +81,8 @@ Upbit Announcement WebSocket 文档明确该功能“不属于任何权限组”
 - 新增 `scripts/collect-public-stablecoin-flows.mjs` 和独立提供商身份 `public_rpc`。该链路不读取 Whale Alert、Bitquery 或其他付费标签；付费适配器及其许可闸门保持默认关闭。
 - 当前范围严格限定为 Ethereum mainnet 上的原生 USDT、USDC 合约，以及 Binance Proof of Reserves 官方接口当次披露、且 `thirdPartyCustodianName` 为空的 ETH 地址。2026-09-25 本地实测取得 32 个大小写去重后的地址。Ceffu 等第三方托管地址不归为 Binance。
 - 美元门槛采用稳定币 `1 token = USD 1` 的**名义估值**，事件保存 `valuation_method=stablecoin_nominal_usd` 和区块时间；页面明确提示脱锚误差。它不是实时成交价格，也不能用于推断机构买卖。
-- 初次运行只回补最近 7,200 个已确认区块，随后按 D1 游标续跑。每个 500 区块分片必须完整取得两种代币、转入/转出日志和区块时间并成功写入后才推进游标；HTTP/RPC/部分响应失败写 `degraded/reconnecting`，不推进游标。事件键为链、交易哈希、日志索引和币种，复投真实事件不会重复入库或重复排队。初次回补中链上时间超过 15 分钟的历史事件只入库、不进入企微队列，避免首次启用集中补发旧告警。
-- 本地真实闭环回补得到 55 条过去 24 小时内的 ≥USD 10m USDT/USDC 事件；样本 `0x05773f70149aeca550753c05ea4770ecea1ee6ed126a5b308ebc76756c480703` 为 20,000,000 USDC。连续复投两次均为 `inserted=0,deduped=1`。故障注入前后游标均为 `26050900`，恢复后从 `26050901` 继续并推进到 `26050925`。
+- 初次运行只回补最近 7,200 个已确认区块，随后按 D1 游标续跑。每个 500 区块分片必须完整取得两种代币、转入/转出日志和区块时间并成功写入后才推进游标；HTTP/RPC/部分响应失败写 `degraded/reconnecting`，不推进游标。事件键为链、交易哈希、日志索引和币种，复投真实事件不会重复入库。资金流事件不进入任何企微队列。
+- 本地真实闭环当前累计 59 条 ≥USD 10m USDT/USDC 事件（21 笔已知地址转入、26 笔已知地址转出、12 笔同实体搬仓）；样本 `0x05773f70149aeca550753c05ea4770ecea1ee6ed126a5b308ebc76756c480703` 为 20,000,000 USDC。连续复投两次均为 `inserted=0,deduped=1`。故障注入前后游标均为 `26050900`，恢复后从 `26050901` 继续并推进到 `26050925`。
 - 页面只称“已知地址样本转入/转出/净额”。未披露充值地址、其他交易所、其他链、其他资产、合约路由和链下内部账务均不覆盖；不能称为 Binance 全部净流入，空列表也不能解释为零流量。
 
 #### 免费 RPC、条款与运行成本
@@ -82,11 +90,11 @@ Upbit Announcement WebSocket 文档明确该功能“不属于任何权限组”
 | 候选 | 免费额度 / 条件 | 条款与可靠性结论 | 当前使用 |
 | --- | --- | --- | --- |
 | dRPC 公共 Ethereum endpoint | 官方文档列出 `https://eth.drpc.org`；免费档 210M CU/30 天、通常 120k CU/分钟、`eth_getLogs` 最多 10,000 行、batch 最多 3、单次最长 2 秒；每个 EVM RPC 调用 20 CU | 无密钥、无付费；公共节点无保证，复杂多地址日志请求在本地出现 400/连接中断，尚未通过本采集器的完整回补实测 | 候选回退，不宣称已接通 |
-| PublicNode Ethereum | 官方页面公开 `https://ethereum-rpc.publicnode.com`，无密钥、标称免费，未公布固定配额或 SLA | 本地完整回补可用；其通用条款禁止未获授权的复制/分发/抓取，虽然页面展示的是链上原始事实而非 PublicNode 自有内容，公开生产用途仍需书面澄清或更换为条款明确的 RPC | **仅本地真实验证**；生产 job 由 `PUBLIC_FLOW_ENABLED` 默认关闭 |
+| PublicNode Ethereum | 官方页面公开 `https://ethereum-rpc.publicnode.com`，无密钥、标称免费，未公布固定配额或 SLA | 官方条款第 26 条授权通过 RPC 连接区块链，但第 20、34、35 条又限制未经书面批准的复制/公开展示/发布及自动提取。自动采集、公开网页展示和有限缓存的组合用途没有被明确授权 | **仅本地真实验证**；生产 job 由 `PUBLIC_FLOW_ENABLED` 默认关闭，询问草稿见 `docs/PUBLICNODE_AUTHORIZATION_DRAFT.md` |
 | Ankr Public/Freemium | 官方服务计划称 Public 免费约 1,800 请求/分钟，Freemium 每月 200M credits | 当前官方 API 参考及实测端点要求免费账户 API key；不符合本轮“不要提供 key”的条件 | 未接入 |
 | Cloudflare Ethereum Gateway | 各计划含 500k HTTP 请求 | 2026 文档明确 Web3 Gateway 是 usage-based paid add-on，须购买/创建 gateway | 排除 |
 
-代码本身不需要免费 API key；本地验证费用为 USD 0。若要求无调度空窗、分钟级持续发现，需要一台常驻采集机。GitHub Actions 的 30 分钟触发、25 分钟运行会留下约 5 分钟发现延迟，但游标回补可避免正常范围内的数据丢失。由于 PublicNode 生产许可尚未澄清，`PUBLIC_FLOW_ENABLED` 不应在生产设置为 `true`；这不会影响本地真实闭环。
+代码本身不需要免费 API key；本地验证费用为 USD 0。若要求无调度空窗、分钟级持续发现，需要一台常驻采集机。当前 Windows 机器已具备 Node 与仓库运行环境，但尚无资金流计划任务；脚本现支持 `PUBLIC_FLOW_CONTINUOUS=true`、同 checkout 本机锁、失败退避和 D1 游标恢复。具体配置与恢复步骤见 `docs/PUBLIC_FLOW_ALWAYS_ON.md`。GitHub Actions 的 30 分钟触发、25 分钟运行会留下约 5 分钟发现延迟，但游标回补可避免 RPC 历史范围内的数据丢失。由于 PublicNode 生产许可尚未澄清，`PUBLIC_FLOW_ENABLED` 不应在生产设置为 `true`；这不会影响本地真实闭环。
 
 官方依据：Binance Proof of Reserves <https://www.binance.com/en/proof-of-reserves>；Binance 官方披露接口 <https://www.binance.com/bapi/apex/v1/public/apex/market/por/address>；Ethereum `eth_getLogs` <https://ethereum.org/developers/docs/apis/json-rpc/>；dRPC 免费额度与限制 <https://drpc.org/docs/pricing/requests>、<https://drpc.org/docs/howitworks/ratelimiting>、<https://drpc.org/docs/pricing/compute-units>；PublicNode endpoint 与条款 <https://ethereum.publicnode.com/>、<https://www.publicnode.com/terms>；Ankr 计划 <https://www.ankr.com/docs/rpc-service/service-plans/>；Cloudflare Gateway <https://developers.cloudflare.com/web3/get-started/>。
 
@@ -101,7 +109,7 @@ Upbit Announcement WebSocket 文档明确该功能“不属于任何权限组”
 
 | 服务 | 地址标签与价格 | 链与时效 | 配额/费用 | 本项目结论 |
 | --- | --- | --- | --- | --- |
-| Whale Alert Alerts API | 交易双方归属、美元价格；能排除内部/同实体 | WebSocket 实时，100+ 资产、14 条链；同订阅 ID 在 5 分钟内重连可补发 | Alerts USD 29.95/月、100 alerts/hour，明确 personal use only；Business Enterprise API USD 699/月 | **BLOCKED**。通用条款禁止公开、传播或写入第三方可访问系统，除非取得书面许可；即使 USD 699 Business 也必须先书面确认本 Site 与企业微信再分发权 |
+| Whale Alert Alerts API | 交易双方归属、美元价格；能排除内部/同实体 | WebSocket 实时，100+ 资产、14 条链；同订阅 ID 在 5 分钟内重连可补发 | Alerts USD 29.95/月、100 alerts/hour，明确 personal use only；Business Enterprise API USD 699/月 | **BLOCKED**。通用条款禁止公开、传播或写入第三方可访问系统，除非取得书面许可；即使 USD 699 Business 也必须先书面确认本 Site 的公开网页展示、缓存与衍生汇总权 |
 | Nansen API | `tgm/transfers`、`tgm/flows` 可按再分发指南公开并须署名；原始 `/label` 与 Smart Money 多项禁止或受限 | 约 25 条链，REST | Free 100 credits + 每日 10；Pro USD 49/月含 2,000 credits；额外 credits USD 100/100,000 | 对少量指定币种可行，但要按分钟全局扫描会按链×币种线性耗费。示例 10 币×8 链×每分钟约 345.6 万次/月，即约 USD 3,456 credits + USD 49，仍不是完整覆盖；API Terms 对公共第三方应用另有许可要求 |
 | Arkham Intel API | 实体标签、交易与资金流 | 实时 API，地址情报更新为游标续跑 | 按申请开放，官方未公布自助价格 | 候选；须申请 key、报价并取得公开 dashboard/告警使用条款。未获批前 BLOCKED |
 | Bitquery | 实时 Transfers、`AmountInUSD`；Metadata.Labels 覆盖 12 条链 | GraphQL WebSocket；自助实时 10 条核心链的 Transfers 窗口仅 EVM/Tron 4 小时、Solana 8 小时；原生 Bitcoin 实时需另行确认 | Pro USD 99/月含 100k stream-min + 5GB + 1M points；Labels USD 99/月；额外 200k stream-min / 5GB / 1M points 各 USD 50/月 | **BLOCKED**。10 条链连续订阅为 446,400 stream-min/月，Pro 基础并不够；月付基线约 USD 298（Pro 99 + Labels 99 + 两个 stream-min 包 100），且 GB、长中断补采、原生 Bitcoin 和授权都可能追加费用 |
@@ -110,7 +118,7 @@ Upbit Announcement WebSocket 文档明确该功能“不属于任何权限组”
 
 `scripts/collect-bitquery.mjs` 已实现 10 条自助核心链的独立 Transfers 订阅：Ethereum、BNB Chain、Base、Arbitrum、Optimism、Polygon、Robinhood、Arc、Tron、Solana。服务端 GraphQL 先按 `AmountInUSD >= 10,000,000` 过滤；事件再查询 `Metadata.Labels`，并保留地址、标签类型、标签值和记录时间。API 以 `chain + tx hash/signature + transfer id + symbol` 去重，机构买卖字段始终为 `null`。断线指数退避，重连时从上次 `Block.Time` 减 5 秒在 realtime 窗口补采；返回达到 5,000 行上限时显式报错，不能宣称补采完整。
 
-采集器、GitHub job 和 Site API 有三重默认关闭：`BITQUERY_ENABLED != true` 不连接；`BITQUERY_PUBLIC_DISTRIBUTION_APPROVED != true` 时 job 不运行；即使错误启动，Site API 仍拒绝 Bitquery 事件写入与企微队列。当前未配置 key、未获得许可、未读取真实 Bitquery 数据，资金流维持 BLOCKED。
+采集器、GitHub job 和 Site API 有三重默认关闭：`BITQUERY_ENABLED != true` 不连接；`BITQUERY_PUBLIC_DISTRIBUTION_APPROVED != true` 时 job 不运行；即使错误启动，Site API 仍拒绝 Bitquery 事件写入。两个新栏目均无企微入口或队列消费。当前未配置 key、未获得许可、未读取真实 Bitquery 数据，资金流付费扩展维持 BLOCKED。
 
 #### 自助方案用量模型（31 天月，购买前必须用试用期实测替换估算）
 
@@ -135,7 +143,7 @@ Upbit Announcement WebSocket 文档明确该功能“不属于任何权限组”
 这仍不包含：原生 Bitcoin 实时流、书面第三方应用授权、Enterprise Kafka/SLA、超过实时窗口的可靠历史补采。若为全部 10 链购买自助 Transfers 历史包，公开月付价粗算为 8 条常规 EVM/Tron各 USD 150 + Arc USD 100 + Solana USD 500 = **USD 1,800/月额外费用**；这不是建议购买方案，只证明长中断全链补采不能算在 USD 298 内。供应商授权询问草稿见 `docs/BITQUERY_AUTHORIZATION_DRAFT.md`。
 
 任何付费方案都必须由所有者显式决定；密钥只放 Sites/GitHub 环境变量或 Secret。
-上线公开资金流页面前，须确认供应商许可覆盖公开展示与企业微信提醒；不要把购买个人计划的密钥当作公开使用授权。官方 WebSocket 的 `amounts[]` 允许一笔交易包含多种资产，必须逐资产去重并验收真实格式。
+上线公开资金流页面前，须确认供应商许可覆盖公开网页展示、有限缓存、历史保留和衍生汇总；不要把购买个人计划的密钥当作公开使用授权。官方 WebSocket 的 `amounts[]` 允许一笔交易包含多种资产，必须逐资产去重并验收真实格式。
 
 外部项以本次交付报告中的最小阻塞表为准。不要一次配置多家资金流供应商，也不要先购买 Whale Alert Personal。任何供应商 key 均只配置在实际运行其采集器的固定采集机/CI secret，不进入源码、日志、浏览器或聊天记录。
 

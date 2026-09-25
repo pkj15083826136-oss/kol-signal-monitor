@@ -1,5 +1,5 @@
 import { describe,expect,it } from "vitest";
-import { classifyFlow,normalizeBitqueryTransfers,normalizePublicRpcTransfer,normalizeWhaleAlert,normalizeWhaleAlerts,shouldQueuePublicFlowAlert } from "@/lib/fund-flows";
+import { classifyFlow,normalizeBitqueryTransfers,normalizePublicRpcTransfer,normalizeWhaleAlert,normalizeWhaleAlerts } from "@/lib/fund-flows";
 describe("large fund flow classification",()=>{
   it("uses outflow-minus-inflow sign inputs without claiming a trade",()=>{expect(classifyFlow("unknown","Binance")).toEqual({direction:"inflow",classification:"exchange_inflow",countsTowardNetflow:true});expect(classifyFlow("Coinbase","unknown")).toEqual({direction:"outflow",classification:"exchange_outflow",countsTowardNetflow:true})});
   it("excludes internal, same-entity and bridge movements",()=>{expect(classifyFlow("Binance","Coinbase").countsTowardNetflow).toBe(false);expect(classifyFlow("Kraken","Kraken").classification).toBe("same_entity");expect(classifyFlow("Wormhole Bridge","Binance").classification).toBe("bridge")});
@@ -27,11 +27,5 @@ describe("large fund flow classification",()=>{
     expect(row).toMatchObject({provider:"public_rpc",direction:"inflow",classification:"exchange_inflow",countsTowardNetflow:true,toEntity:"Binance",labelConfidence:"official_disclosure",valuationMethod:"stablecoin_nominal_usd",institutionTradeSide:null});
     expect(normalizePublicRpcTransfer({...base,amount:9_999_999})).toBeNull();
     expect(normalizePublicRpcTransfer({...base,fromAddress:"0x3333333333333333333333333333333333333333",toAddress:"0x4444444444444444444444444444444444444444"})).toBeNull();
-  });
-  it("does not enqueue historical backfill as a fresh public-flow alert",()=>{
-    const now=Date.parse("2026-09-25T02:00:00Z");
-    expect(shouldQueuePublicFlowAlert("2026-09-25T01:50:00Z",now)).toBe(true);
-    expect(shouldQueuePublicFlowAlert("2026-09-25T01:40:00Z",now)).toBe(false);
-    expect(shouldQueuePublicFlowAlert("2026-09-25T02:01:00Z",now)).toBe(false);
   });
 });

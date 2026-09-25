@@ -1,8 +1,6 @@
 import { env } from "cloudflare:workers";
-import { AlertDeliveryError } from "@/lib/alert-delivery";
-import { MIN_FLOW_USD, normalizeBitqueryTransfers, normalizePublicRpcTransfer, normalizeWhaleAlerts, shouldQueuePublicFlowAlert, type BitqueryAddressLabel } from "@/lib/fund-flows";
+import { MIN_FLOW_USD, normalizeBitqueryTransfers, normalizePublicRpcTransfer, normalizeWhaleAlerts, type BitqueryAddressLabel } from "@/lib/fund-flows";
 import { isMonitorAuthorized } from "@/lib/monitor-auth";
-import { sendWeComMarkdown } from "@/lib/wecom";
 
 export const dynamic = "force-dynamic";
 type JsonRecord = Record<string, unknown>;
@@ -19,31 +17,16 @@ function bitqueryDistributionApproved() {
   return String((env as unknown as Record<string, unknown>).BITQUERY_PUBLIC_DISTRIBUTION_APPROVED || "").toLowerCase() === "true";
 }
 
+function whaleAlertDistributionApproved() {
+  return String((env as unknown as Record<string, unknown>).WHALE_ALERT_PUBLIC_DISTRIBUTION_APPROVED || "").toLowerCase() === "true";
+}
+
 async function updateHealth(db: D1Database, provider: Provider, input: { status: string; cursor?: string | null; connectionStatus?: string; lastEventAt?: string | null; error?: string | null; coverage?: unknown[]; latencyMs?: number }) {
   const now = new Date().toISOString();
   const previous = await db.prepare("SELECT consecutive_failures FROM fund_flow_collector_state WHERE source=?").bind(provider).first<{ consecutive_failures: number }>();
   const failures = input.status === "healthy" ? 0 : (previous?.consecutive_failures || 0) + 1;
   await db.prepare("INSERT INTO fund_flow_collector_state (source,status,cursor,connection_status,last_attempt_at,last_success_at,last_event_at,last_heartbeat_at,consecutive_failures,next_retry_at,last_latency_ms,last_error,coverage_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(source) DO UPDATE SET status=excluded.status,cursor=COALESCE(excluded.cursor,fund_flow_collector_state.cursor),connection_status=excluded.connection_status,last_attempt_at=excluded.last_attempt_at,last_success_at=CASE WHEN excluded.status='healthy' THEN excluded.last_success_at ELSE fund_flow_collector_state.last_success_at END,last_event_at=COALESCE(excluded.last_event_at,fund_flow_collector_state.last_event_at),last_heartbeat_at=excluded.last_heartbeat_at,consecutive_failures=excluded.consecutive_failures,next_retry_at=excluded.next_retry_at,last_latency_ms=excluded.last_latency_ms,last_error=excluded.last_error,coverage_json=excluded.coverage_json")
     .bind(provider, input.status, input.cursor || null, input.connectionStatus || "connected", now, input.status === "healthy" ? now : null, input.lastEventAt || null, now, failures, input.status === "healthy" ? null : new Date(Date.now() + Math.min(300_000, 2 ** Math.min(failures, 8) * 1000)).toISOString(), input.latencyMs || 0, input.error || null, JSON.stringify(input.coverage || [])).run();
-}
-
-async function deliver(db: D1Database, now: string, allowBitquery: boolean) {
-  const providerClause = allowBitquery ? "" : "AND f.provider!='bitquery'";
-  const rows = await db.prepare(`SELECT d.event_id,d.attempts,f.* FROM fund_flow_alert_deliveries d JOIN fund_flow_events f ON f.id=d.event_id WHERE d.status IN ('pending','retry') AND (d.next_attempt_at IS NULL OR d.next_attempt_at<=?) ${providerClause} ORDER BY f.chain_occurred_at LIMIT 5`).bind(now).all<Record<string, unknown>>();
-  let sent = 0;
-  for (const row of rows.results) {
-    try {
-      const direction = row.direction === "inflow" ? "转入交易所／潜在卖压" : row.direction === "outflow" ? "转出交易所" : "不计净流向";
-      await sendWeComMarkdown(`## 大额资金流向\n> **${String(row.symbol)} · $${Number(row.amount_usd).toLocaleString("en-US", { maximumFractionDigits: 0 })}**\n> ${direction} · ${String(row.chain)}\n> 来源：${String(row.from_entity || "归属待核实")}\n> 去向：${String(row.to_entity || "归属待核实")}\n> 哈希：${String(row.tx_hash)}`);
-      await db.prepare("UPDATE fund_flow_alert_deliveries SET status='sent',attempts=attempts+1,last_attempt_at=?,sent_at=?,last_error=NULL WHERE event_id=?").bind(now, now, row.event_id).run();
-      sent++;
-    } catch (error) {
-      const retryable = error instanceof AlertDeliveryError && error.retryable;
-      const attempts = Number(row.attempts) + 1;
-      await db.prepare("UPDATE fund_flow_alert_deliveries SET status=?,attempts=?,last_attempt_at=?,next_attempt_at=?,last_error=? WHERE event_id=?").bind(retryable && attempts < 5 ? "retry" : "manual_review", attempts, now, retryable ? new Date(Date.now() + Math.min(300_000, 2 ** attempts * 15_000)).toISOString() : null, error instanceof Error ? error.message : String(error), row.event_id).run();
-    }
-  }
-  return { queued: rows.results.length, sent };
 }
 
 function authorized(request: Request) {
@@ -57,7 +40,7 @@ export async function GET(request: Request) {
   const provider = new URL(request.url).searchParams.get("provider") as Provider;
   if (!allowedProviders.has(provider)) return Response.json({ error: "invalid_provider" }, { status: 400 });
   const state = await env.DB.prepare("SELECT source,status,cursor,connection_status,last_event_at,last_heartbeat_at,last_error,coverage_json FROM fund_flow_collector_state WHERE source=?").bind(provider).first<Record<string, unknown>>();
-  return Response.json({ state: state || null, publicDistributionApproved: provider === "bitquery" ? bitqueryDistributionApproved() : false });
+  return Response.json({ state: state || null, publicDistributionApproved: provider === "bitquery" ? bitqueryDistributionApproved() : provider === "whale_alert" ? whaleAlertDistributionApproved() : false });
 }
 
 export async function POST(request: Request) {
@@ -69,9 +52,14 @@ export async function POST(request: Request) {
   if (!allowedProviders.has(provider)) return Response.json({ error: "invalid_provider" }, { status: 400 });
   const records = Array.isArray(body.events) ? body.events.slice(0, 500) : [];
   const allowBitquery = bitqueryDistributionApproved();
+  const allowWhaleAlert = whaleAlertDistributionApproved();
   if (provider === "bitquery" && records.length && !allowBitquery) {
-    await updateHealth(env.DB, provider, { status: "blocked", connectionStatus: "license_not_approved", error: "Bitquery 公开网页展示及企业微信推送授权尚未确认", coverage: Array.isArray(body.coverage) ? body.coverage : [] });
+    await updateHealth(env.DB, provider, { status: "blocked", connectionStatus: "license_not_approved", error: "Bitquery 公开网页展示授权尚未确认", coverage: Array.isArray(body.coverage) ? body.coverage : [] });
     return Response.json({ error: "bitquery_public_distribution_not_approved" }, { status: 403 });
+  }
+  if (provider === "whale_alert" && records.length && !allowWhaleAlert) {
+    await updateHealth(env.DB, provider, { status: "blocked", connectionStatus: "license_not_approved", error: "Whale Alert 公开网页展示授权尚未确认", coverage: Array.isArray(body.coverage) ? body.coverage : [] });
+    return Response.json({ error: "whale_alert_public_distribution_not_approved" }, { status: 403 });
   }
   const now = new Date().toISOString();
   const labels = Array.isArray(body.labels) ? body.labels.map(asRecord).map((row) => ({ address: String(row.address || ""), chain: String(row.chain || ""), type: String(row.type || ""), value: String(row.value || ""), recordedAt: row.recordedAt ? String(row.recordedAt) : null })).filter((row) => row.address && row.type && row.value) as BitqueryAddressLabel[] : [];
@@ -87,11 +75,9 @@ export async function POST(request: Request) {
         .bind(item.eventKey, item.provider, item.chain, item.symbol, item.amount, item.amountUsd, item.priceUsd, item.priceAt, "valuationMethod" in item ? item.valuationMethod : null, item.txHash, "sourceUrl" in item ? item.sourceUrl : null, "attributionUrl" in item ? item.attributionUrl : null, item.fromAddress, item.toAddress, item.fromEntity, item.toEntity, item.fromLabelSource, item.toLabelSource, item.labelConfidence, item.direction, item.classification, item.countsTowardNetflow ? 1 : 0, null, item.bridgeName, item.chainOccurredAt, item.discoveredAt, fingerprint).first<{ id: number }>();
       if (result) {
         inserted++;
-        const freshEnoughToAlert = provider !== "public_rpc" || shouldQueuePublicFlowAlert(item.chainOccurredAt);
-        if (freshEnoughToAlert) await env.DB.prepare("INSERT OR IGNORE INTO fund_flow_alert_deliveries (event_id,delivery_key,status,attempts,next_attempt_at,payload_hash) VALUES (?,?,'pending',0,?,?)").bind(result.id, `fund-flow:${item.eventKey}`, now, fingerprint).run();
       } else deduped++;
     }
   }
   await updateHealth(env.DB, provider, { status: String(body.status || "healthy"), cursor: body.cursor ? String(body.cursor) : null, connectionStatus: String(body.connectionStatus || "connected"), lastEventAt: inserted ? now : null, error: body.error ? String(body.error).slice(0, 300) : null, coverage: Array.isArray(body.coverage) ? body.coverage : [], latencyMs: Number(body.latencyMs || 0) });
-  return Response.json({ ok: true, provider, minimumUsd: MIN_FLOW_USD, inserted, deduped, rejected, delivery: await deliver(env.DB, now, allowBitquery) });
+  return Response.json({ ok: true, provider, minimumUsd: MIN_FLOW_USD, inserted, deduped, rejected, notifications: { enabled: false, mode: "web_only" } });
 }

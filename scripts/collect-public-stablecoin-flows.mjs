@@ -1,7 +1,12 @@
+import { closeSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { hostname } from "node:os";
+import path from "node:path";
+
 const SITE_URL = (process.env.SITE_URL || "http://127.0.0.1:8787").replace(/\/$/, "");
 const MONITOR_SECRET = process.env.MONITOR_SECRET || "";
 const RPC_URL = process.env.ETHEREUM_RPC_URL || "https://ethereum-rpc.publicnode.com";
 const RUN_MS = Number(process.env.COLLECTOR_DURATION_MS || 0);
+const CONTINUOUS = String(process.env.PUBLIC_FLOW_CONTINUOUS || "").toLowerCase() === "true";
 const POLL_MS = Math.max(15_000, Number(process.env.PUBLIC_FLOW_POLL_MS || 60_000));
 const INITIAL_BACKFILL = Math.max(100, Number(process.env.PUBLIC_FLOW_INITIAL_BACKFILL_BLOCKS || 7_200));
 const CONFIRMATIONS = Math.max(1, Number(process.env.PUBLIC_FLOW_CONFIRMATIONS || 12));
@@ -13,6 +18,41 @@ const TOKENS = [
   { symbol: "USDT", address: "0xdac17f958d2ee523a2206206994597c13d831ec7", decimals: 6 },
   { symbol: "USDC", address: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", decimals: 6 },
 ];
+const LOCK_FILE = process.env.PUBLIC_FLOW_LOCK_FILE || path.join(process.cwd(), ".sites-runtime", "public-flow-collector.lock");
+const LOCK_TOKEN = `${hostname()}:${process.pid}:${Date.now()}`;
+let lockFd = null;
+
+function processAlive(pid) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+  try { process.kill(pid, 0); return true; } catch (error) { return error?.code === "EPERM"; }
+}
+
+function readLock() {
+  try { return JSON.parse(readFileSync(LOCK_FILE, "utf8")); } catch { return null; }
+}
+
+function acquireLock() {
+  mkdirSync(path.dirname(LOCK_FILE), { recursive: true });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      lockFd = openSync(LOCK_FILE, "wx");
+      writeFileSync(lockFd, JSON.stringify({ token: LOCK_TOKEN, pid: process.pid, host: hostname(), startedAt: new Date().toISOString() }));
+      return;
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+      const owner = readLock();
+      if (owner?.host === hostname() && processAlive(Number(owner.pid))) throw new Error(`public flow collector already running (pid ${owner.pid})`);
+      if (attempt === 0) { unlinkSync(LOCK_FILE); continue; }
+      throw new Error("public flow collector lock could not be acquired");
+    }
+  }
+}
+
+function releaseLock() {
+  if (lockFd !== null) { try { closeSync(lockFd); } catch {} lockFd = null; }
+  const owner = readLock();
+  if (owner?.token === LOCK_TOKEN) { try { unlinkSync(LOCK_FILE); } catch {} }
+}
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const hex = (value) => `0x${value.toString(16)}`;
@@ -130,13 +170,23 @@ async function cycle() {
 
 const started = Date.now();
 let lastAddresses = [];
-do {
-  try { await cycle(); }
-  catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(JSON.stringify({ at: new Date().toISOString(), status: "degraded", error: message }));
-    await postHealth("degraded", lastAddresses, null, message).catch(() => {});
-  }
-  if (RUN_MS <= 0 || Date.now() + POLL_MS >= started + RUN_MS) break;
-  await sleep(POLL_MS);
-} while (true);
+let consecutiveFailures = 0;
+try {
+  acquireLock();
+  process.once("SIGINT", () => { releaseLock(); process.exit(130); });
+  process.once("SIGTERM", () => { releaseLock(); process.exit(143); });
+  do {
+    try { await cycle(); consecutiveFailures = 0; }
+    catch (error) {
+      consecutiveFailures++;
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(JSON.stringify({ at: new Date().toISOString(), status: "degraded", consecutiveFailures, error: message }));
+      await postHealth("degraded", lastAddresses, null, message).catch(() => {});
+    }
+    const delay = consecutiveFailures ? Math.min(300_000, POLL_MS * 2 ** Math.min(consecutiveFailures - 1, 4)) : POLL_MS;
+    if (!CONTINUOUS && (RUN_MS <= 0 || Date.now() + delay >= started + RUN_MS)) break;
+    await sleep(delay);
+  } while (CONTINUOUS || Date.now() < started + RUN_MS);
+} finally {
+  releaseLock();
+}
